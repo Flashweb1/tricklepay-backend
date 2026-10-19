@@ -69,6 +69,11 @@ export const DEFAULT_STREAM_SUMMARY_CACHE_TTL_MS = 2_000;
 export const DEFAULT_RATE_LIMIT_MAX = 100;
 export const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
 
+// Default Retry-After, in seconds, advertised on a not-ready `/ready`
+// response. It tells orchestrators and load balancers how long to wait before
+// probing again, which is useful while a long backfill is still in progress.
+export const DEFAULT_READINESS_RETRY_AFTER_SECONDS = 5;
+
 function positiveInteger(name: string, fallback: number, min: number): number {
   const raw = process.env[name];
   if (!raw || raw.trim() === "") return fallback;
@@ -165,6 +170,7 @@ export interface Config {
   readonly trustedProxies: readonly string[];
   readonly rateLimitMax?: number;
   readonly rateLimitWindowMs?: number;
+  readonly readinessRetryAfterSeconds: number;
 }
 
 export function loadConfig(): Config {
@@ -188,6 +194,10 @@ export function loadConfig(): Config {
   if (rateLimitWindowMs === 0) {
     throw new Error("RATE_LIMIT_WINDOW_MS must be greater than zero");
   }
+  const readinessRetryAfterSeconds = integer(
+    "READINESS_RETRY_AFTER_SECONDS",
+    DEFAULT_READINESS_RETRY_AFTER_SECONDS,
+  );
 
   return {
     port: integer("PORT", 3000),
@@ -219,6 +229,7 @@ export function loadConfig(): Config {
     trustedProxies: parseTrustedProxies(process.env.TRUSTED_PROXIES),
     rateLimitMax,
     rateLimitWindowMs,
+    readinessRetryAfterSeconds,
   };
 }
 
@@ -295,5 +306,6 @@ export function describeConfig(config: Config): LoggedConfig {
     // Undefined when rate limiting is not configured; pino omits the field.
     rateLimitMax: config.rateLimitMax,
     rateLimitWindowMs: config.rateLimitWindowMs,
+    readinessRetryAfterSeconds: config.readinessRetryAfterSeconds,
   };
 }

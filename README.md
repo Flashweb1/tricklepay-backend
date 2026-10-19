@@ -362,6 +362,8 @@ The service exposes two health endpoints that answer different questions. Wire t
 }
 ```
 
+Every 503 response also carries a `Retry-After` header whose value is the number of seconds to wait before probing again, so orchestrators and load balancers can pace their checks — for example while a long backfill is still running. The value defaults to 5 seconds and is configurable via `READINESS_RETRY_AFTER_SECONDS`. A ready (200) response does not include the header.
+
 **Intended use:** This is a **readiness probe**. Use it to determine whether the instance should receive traffic. If this returns 503, take the instance out of load-balancer rotation — the process is fine, but a dependency isn't. Do NOT restart the container on a readiness failure; wait for the dependency to recover.
 
 ### Why Separate Probes?
@@ -701,6 +703,7 @@ current template — copy it and fill in the required values.
 | `RATE_LIMIT_MAX` | No | `100` | Maximum requests per client IP in each rate-limit window. Must be greater than zero. |
 | `RATE_LIMIT_WINDOW_MS` | No | `60000` | Length of the fixed rate-limit window in milliseconds. Must be greater than zero. |
 | `TRUSTED_PROXIES` | No | - | Comma-separated list of trusted reverse-proxy addresses or IPv4 CIDR blocks. Forwarded headers are ignored when unset. |
+| `READINESS_RETRY_AFTER_SECONDS` | No | `5` | Seconds advertised in the `Retry-After` header when `GET /ready` returns 503, so orchestrators and load balancers know when to probe again. |
 | `INDEXER_POLL_INTERVAL_MS` | No | `5000` | Milliseconds between polls of the chain. |
 | `INDEXER_BACKOFF_MAX_MS` | No | `60000` | Maximum poll retry delay (ms) on RPC failures. |
 | `INDEXER_START_LEDGER` | No | `0` | Ledger to begin indexing from. `0` starts at the chain's latest ledger. |
@@ -952,8 +955,10 @@ they answer different questions:
 - **Readiness — `GET /ready`.** Checks the database connection and returns
   `200` with the current indexer lag when it succeeds, or
   `503 {"status":"not_ready","database":"down"}` when Postgres is unreachable.
-  A readiness probe should take the instance out of load-balancer rotation on a
-  503 without restarting it — the process is fine, a dependency isn't.
+  The 503 carries a `Retry-After` header (seconds, configurable via
+  `READINESS_RETRY_AFTER_SECONDS`) so probes can pace themselves; a 200 does
+  not. A readiness probe should take the instance out of load-balancer rotation
+  on a 503 without restarting it — the process is fine, a dependency isn't.
 
 ### Migrations
 
