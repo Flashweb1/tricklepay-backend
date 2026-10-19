@@ -11,12 +11,13 @@ import Fastify, {
   type FastifyInstance,
 } from "fastify";
 
-import { swaggerConfig, swaggerUiConfig } from "./api-spec.js";
+import { buildSwaggerConfig, swaggerUiConfig } from "./api-spec.js";
 
 import {
   DEFAULT_RATE_LIMIT_MAX,
   DEFAULT_RATE_LIMIT_WINDOW_MS,
   DEFAULT_READINESS_RETRY_AFTER_SECONDS,
+  defaultPublicBaseUrl,
   type Config,
 } from "./config.js";
 
@@ -59,6 +60,9 @@ export async function buildServer(config?: Partial<Config>): Promise<FastifyInst
   const rateLimitWindowMs = config?.rateLimitWindowMs ?? DEFAULT_RATE_LIMIT_WINDOW_MS;
   const readinessRetryAfterSeconds =
     config?.readinessRetryAfterSeconds ?? DEFAULT_READINESS_RETRY_AFTER_SECONDS;
+  const publicBaseUrl =
+    config?.publicBaseUrl ??
+    defaultPublicBaseUrl(config?.host ?? "0.0.0.0", config?.port ?? 3000);
   const app = Fastify({
     // Fastify types its logger as FastifyBaseLogger; the pino instance
     // satisfies that interface at runtime.
@@ -164,7 +168,7 @@ export async function buildServer(config?: Partial<Config>): Promise<FastifyInst
   registerSharedSchemas(app);
 
   // Generate the OpenAPI 3.0 spec from route schemas automatically.
-  await app.register(swagger, swaggerConfig);
+  await app.register(swagger, buildSwaggerConfig(publicBaseUrl));
 
   // Serve the interactive Swagger UI at /docs and the raw spec at /docs/json
   // and /docs/yaml (these paths are the @fastify/swagger-ui defaults).

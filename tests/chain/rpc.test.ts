@@ -37,6 +37,7 @@ function configWith(rpcUrl: string): Config {
     rpcUrl,
     port: 3000,
     host: "0.0.0.0",
+    publicBaseUrl: "http://localhost:3000",
     databaseUrl: "postgresql://localhost/test",
     network: "testnet",
     networkPassphrase: "Test SDF Network ; September 2015",

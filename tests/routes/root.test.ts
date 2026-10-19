@@ -11,6 +11,7 @@ const mockConfig = {
   network: "testnet",
   port: 3000,
   host: "0.0.0.0",
+  publicBaseUrl: "http://localhost:3000",
   databaseUrl: "postgres://test",
   networkPassphrase: "Test DF Network ; September 2015",
   rpcUrl: "https://soroban-testnet.stellar.org",

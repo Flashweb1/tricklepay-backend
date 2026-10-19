@@ -108,6 +108,7 @@ describe("loadConfig — default values for unset optional settings", () => {
         STREAM_SUMMARY_CACHE_TTL_MS: undefined,
         TRUSTED_PROXIES: undefined,
         READINESS_RETRY_AFTER_SECONDS: undefined,
+        PUBLIC_BASE_URL: undefined,
       },
       () => {
         expect(loadConfig()).toMatchObject({
@@ -115,6 +116,7 @@ describe("loadConfig — default values for unset optional settings", () => {
           rpcUrl: "https://soroban-testnet.stellar.org",
           port: 3000,
           host: "0.0.0.0",
+          publicBaseUrl: "http://localhost:3000",
           pollIntervalMs: 5000,
           startLedger: 0,
           maxBackoffMs: DEFAULT_MAX_BACKOFF_MS,
@@ -140,6 +142,18 @@ describe("loadConfig — default values for unset optional settings", () => {
   it("loads a custom readiness Retry-After value", () => {
     withEnv({ READINESS_RETRY_AFTER_SECONDS: "30" }, () => {
       expect(loadConfig().readinessRetryAfterSeconds).toBe(30);
+    });
+  });
+
+  it("loads an explicit public base URL", () => {
+    withEnv({ PUBLIC_BASE_URL: "https://api.tricklepay.example" }, () => {
+      expect(loadConfig().publicBaseUrl).toBe("https://api.tricklepay.example");
+    });
+  });
+
+  it("derives the public base URL from the configured host and port", () => {
+    withEnv({ HOST: "api.internal", PORT: "8080", PUBLIC_BASE_URL: undefined }, () => {
+      expect(loadConfig().publicBaseUrl).toBe("http://api.internal:8080");
     });
   });
 

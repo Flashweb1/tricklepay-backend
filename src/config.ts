@@ -152,9 +152,22 @@ export function validateStartLedger(startLedger: number, chainHead: number): voi
   }
 }
 
+// Builds the base URL a client generator should use when the OpenAPI document
+// does not carry an explicit one. The configured bind address is often a
+// wildcard (`0.0.0.0` or `::`) that a client cannot dial, so it is replaced
+// with `localhost` for the default; deployments that sit behind a hostname or
+// proxy set PUBLIC_BASE_URL explicitly.
+export function defaultPublicBaseUrl(host: string, port: number): string {
+  const dialableHost = host === "0.0.0.0" || host === "::" ? "localhost" : host;
+  // An IPv6 literal must be bracketed to parse as a URL authority.
+  const authority = dialableHost.includes(":") ? `[${dialableHost}]` : dialableHost;
+  return `http://${authority}:${port}`;
+}
+
 export interface Config {
   readonly port: number;
   readonly host: string;
+  readonly publicBaseUrl: string;
   readonly databaseUrl: string;
   readonly network: string;
   readonly networkPassphrase: string;
@@ -199,9 +212,13 @@ export function loadConfig(): Config {
     DEFAULT_READINESS_RETRY_AFTER_SECONDS,
   );
 
+  const port = integer("PORT", 3000);
+  const host = optional("HOST", "0.0.0.0");
+
   return {
-    port: integer("PORT", 3000),
-    host: optional("HOST", "0.0.0.0"),
+    port,
+    host,
+    publicBaseUrl: optional("PUBLIC_BASE_URL", defaultPublicBaseUrl(host, port)),
     databaseUrl: required("DATABASE_URL"),
     network,
     networkPassphrase,
@@ -289,6 +306,7 @@ export function describeConfig(config: Config): LoggedConfig {
   return {
     port: config.port,
     host: config.host,
+    publicBaseUrl: config.publicBaseUrl,
     // The only field carrying a secret.
     databaseUrl: redactDatabaseUrl(config.databaseUrl),
     network: config.network,

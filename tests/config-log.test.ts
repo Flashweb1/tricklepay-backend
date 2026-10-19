@@ -10,6 +10,7 @@ import { type Config, describeConfig, redactDatabaseUrl } from "../src/config.js
 const CONFIG: Config = {
   port: 3000,
   host: "0.0.0.0",
+  publicBaseUrl: "https://api.tricklepay.example",
   databaseUrl: "postgresql://indexer:s3cr3t@db.internal:5432/tricklepay?schema=public",
   network: "testnet",
   networkPassphrase: "Test SDF Network ; September 2015",
@@ -42,6 +43,7 @@ const EXPECTED_FIELDS = [
   "networkPassphrase",
   "pollIntervalMs",
   "port",
+  "publicBaseUrl",
   "queryStringLimit",
   "rateLimitMax",
   "rateLimitWindowMs",
