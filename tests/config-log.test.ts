@@ -23,6 +23,7 @@ const CONFIG: Config = {
   summaryCacheTtlMs: 2000,
   bodyLimit: 1048576,
   queryStringLimit: 2048,
+  compressionThresholdBytes: 1024,
   trustedProxies: ["10.0.0.0/8"],
   rateLimitMax: 100,
   rateLimitWindowMs: 60000,
@@ -34,6 +35,7 @@ const CONFIG: Config = {
 // the type checker.
 const EXPECTED_FIELDS = [
   "bodyLimit",
+  "compressionThresholdBytes",
   "contractId",
   "databaseUrl",
   "host",

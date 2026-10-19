@@ -74,6 +74,13 @@ export const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
 // probing again, which is useful while a long backfill is still in progress.
 export const DEFAULT_READINESS_RETRY_AFTER_SECONDS = 5;
 
+// Responses at or above this many bytes are compressed when the client accepts
+// gzip or brotli. List responses with many streams are large and highly
+// repetitive, so compressing them cuts transfer size substantially; smaller
+// responses are left alone, since the encoding overhead would outweigh the
+// saving. Used by server.ts when registering @fastify/compress.
+export const DEFAULT_COMPRESSION_THRESHOLD_BYTES = 1024;
+
 function positiveInteger(name: string, fallback: number, min: number): number {
   const raw = process.env[name];
   if (!raw || raw.trim() === "") return fallback;
@@ -180,6 +187,7 @@ export interface Config {
   readonly summaryCacheTtlMs: number;
   readonly bodyLimit: number;
   readonly queryStringLimit: number;
+  readonly compressionThresholdBytes: number;
   readonly trustedProxies: readonly string[];
   readonly rateLimitMax?: number;
   readonly rateLimitWindowMs?: number;
@@ -242,6 +250,10 @@ export function loadConfig(): Config {
     ),
     bodyLimit: integer("BODY_LIMIT", 1048576), // 1MB default
     queryStringLimit: integer("QUERY_STRING_LIMIT", 2048), // 2KB default
+    compressionThresholdBytes: integer(
+      "COMPRESSION_THRESHOLD_BYTES",
+      DEFAULT_COMPRESSION_THRESHOLD_BYTES,
+    ),
     // Forwarded headers are honored only for these direct peers (#75).
     trustedProxies: parseTrustedProxies(process.env.TRUSTED_PROXIES),
     rateLimitMax,
@@ -320,6 +332,7 @@ export function describeConfig(config: Config): LoggedConfig {
     summaryCacheTtlMs: config.summaryCacheTtlMs,
     bodyLimit: config.bodyLimit,
     queryStringLimit: config.queryStringLimit,
+    compressionThresholdBytes: config.compressionThresholdBytes,
     trustedProxies: config.trustedProxies,
     // Undefined when rate limiting is not configured; pino omits the field.
     rateLimitMax: config.rateLimitMax,

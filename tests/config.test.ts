@@ -6,6 +6,7 @@ import {
   DEFAULT_RATE_LIMIT_MAX,
   DEFAULT_RATE_LIMIT_WINDOW_MS,
   DEFAULT_READINESS_RETRY_AFTER_SECONDS,
+  DEFAULT_COMPRESSION_THRESHOLD_BYTES,
   DEFAULT_STREAM_SUMMARY_CACHE_TTL_MS,
   MIN_POLL_INTERVAL_MS,
   isLocalUrl,
@@ -109,6 +110,7 @@ describe("loadConfig — default values for unset optional settings", () => {
         TRUSTED_PROXIES: undefined,
         READINESS_RETRY_AFTER_SECONDS: undefined,
         PUBLIC_BASE_URL: undefined,
+        COMPRESSION_THRESHOLD_BYTES: undefined,
       },
       () => {
         expect(loadConfig()).toMatchObject({
@@ -124,6 +126,7 @@ describe("loadConfig — default values for unset optional settings", () => {
           summaryCacheTtlMs: DEFAULT_STREAM_SUMMARY_CACHE_TTL_MS,
           bodyLimit: 1048576,
           queryStringLimit: 2048,
+          compressionThresholdBytes: DEFAULT_COMPRESSION_THRESHOLD_BYTES,
           trustedProxies: [],
           rateLimitMax: DEFAULT_RATE_LIMIT_MAX,
           rateLimitWindowMs: DEFAULT_RATE_LIMIT_WINDOW_MS,
@@ -154,6 +157,12 @@ describe("loadConfig — default values for unset optional settings", () => {
   it("derives the public base URL from the configured host and port", () => {
     withEnv({ HOST: "api.internal", PORT: "8080", PUBLIC_BASE_URL: undefined }, () => {
       expect(loadConfig().publicBaseUrl).toBe("http://api.internal:8080");
+    });
+  });
+
+  it("loads a custom compression threshold", () => {
+    withEnv({ COMPRESSION_THRESHOLD_BYTES: "4096" }, () => {
+      expect(loadConfig().compressionThresholdBytes).toBe(4096);
     });
   });
 

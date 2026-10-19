@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import cors from "@fastify/cors";
 
+import compress from "@fastify/compress";
+
 import swagger from "@fastify/swagger";
 
 import swaggerUi from "@fastify/swagger-ui";
@@ -17,6 +19,7 @@ import {
   DEFAULT_RATE_LIMIT_MAX,
   DEFAULT_RATE_LIMIT_WINDOW_MS,
   DEFAULT_READINESS_RETRY_AFTER_SECONDS,
+  DEFAULT_COMPRESSION_THRESHOLD_BYTES,
   defaultPublicBaseUrl,
   type Config,
 } from "./config.js";
@@ -63,6 +66,8 @@ export async function buildServer(config?: Partial<Config>): Promise<FastifyInst
   const publicBaseUrl =
     config?.publicBaseUrl ??
     defaultPublicBaseUrl(config?.host ?? "0.0.0.0", config?.port ?? 3000);
+  const compressionThresholdBytes =
+    config?.compressionThresholdBytes ?? DEFAULT_COMPRESSION_THRESHOLD_BYTES;
   const app = Fastify({
     // Fastify types its logger as FastifyBaseLogger; the pino instance
     // satisfies that interface at runtime.
@@ -161,6 +166,16 @@ export async function buildServer(config?: Partial<Config>): Promise<FastifyInst
   // keeps this builder synchronous for its callers.
   void app.register(cors, {
     origin: process.env.CORS_ORIGIN ?? true,
+  });
+
+  // Compress responses at or above the configured threshold when the client
+  // advertises gzip or brotli support. Large list responses are repetitive
+  // JSON, so this cuts transfer size; smaller responses and clients that do
+  // not opt in are served uncompressed. Registered before the routes so the
+  // onSend hook applies to every response.
+  void app.register(compress, {
+    global: true,
+    threshold: compressionThresholdBytes,
   });
 
   // Register shared schemas so routes can reference them with { $ref: "$id" }.

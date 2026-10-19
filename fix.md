@@ -1,21 +1,41 @@
+Responses are sent uncompressed, and list responses with 100 streams are mostly repetitive JSON. Registering @fastify/compress with a size threshold would cut transfer size for clients that accept gzip or brotli.
+
+Acceptance criteria
+
+Responses above a threshold are compressed when the client accepts it.
+
+Small responses and clients without support are unaffected.
+
+A test checks the Content-Encoding header.
+
+
+
+
+When you're done with the above and it good to go
+fill this pr message:
 ## Summary
 
-The generated OpenAPI document had a title, description, version and licence but no `servers` or `contact` entries, so client generators had no base URL to default to and readers had no way to reach the maintainers. This adds both:
+<!-- What does this change do, and why? Keep it short. -->
 
-- An `info.contact` entry pointing at the project repository.
-- A `servers` entry built from configuration: `PUBLIC_BASE_URL` when set, otherwise a URL derived from `HOST` and `PORT` (with a wildcard bind address mapped to `localhost` so the default is dialable).
-
-`swaggerConfig` is now a `buildSwaggerConfig(serverUrl)` factory, wired from `buildServer`, and the new `PUBLIC_BASE_URL` config value is logged with the rest of the resolved configuration.
+Responses were sent uncompressed, so large list payloads (for example `/streams` with 100 streams) moved full-size repetitive JSON over the wire. This registers `@fastify/compress` in `buildServer` with a byte threshold read from a new `COMPRESSION_THRESHOLD_BYTES` setting (default 1024, 1 KiB). Responses at or above the threshold are now compressed for clients that advertise `gzip` or `br`; smaller responses and clients that do not opt in are unchanged. The resolved value is logged with the rest of the configuration and documented.
 
 ## Linked issue
 
+<!-- Every PR should link the issue it closes. -->
 Closes #
 
 ## What was tested
 
+<!--
+Describe what you ran and what it proves. Include commands and, where useful,
+the scenario covered (e.g. "npm test -- tests/indexer/apply.test.ts").
+-->
+
 - `npm run typecheck` — passes.
-- `npx vitest run --project unit tests/routes/openapi.test.ts tests/config.test.ts tests/config-log.test.ts` — 94 passed. New cases assert the spec carries a contact entry, that the `servers[0].url` matches the configured `PUBLIC_BASE_URL`, that it falls back to `http://localhost:<PORT>` from host/port, and that `loadConfig` derives/overrides the base URL.
-- `npx vitest run --project unit` — 617 passed; the single remaining failure (`tests/routes/stream-events.test.ts > returns 400 for an unknown kind`) is pre-existing on `main` and unrelated to this change.
+- `npm run build` — passes.
+- `npx vitest run --project unit tests/routes/compression.test.ts` — 5 passed. Cases assert a response above the threshold carries `Content-Encoding: gzip` (and `br` when the client prefers it), a below-threshold response carries no `Content-Encoding`, a client sending `Accept-Encoding: identity` gets an uncompressed body, and the configured threshold is honoured (same body compresses at 512 but not at 8192).
+- `npx vitest run --project unit tests/config.test.ts tests/config-log.test.ts` — passes, including the new `COMPRESSION_THRESHOLD_BYTES` default/override cases and the redacted-config field list.
+- `npm test` — 623 passed; the single remaining failure (`tests/routes/stream-events.test.ts > returns 400 for an unknown kind`) is pre-existing on `main` and unrelated to this change.
 
 ## Checklist
 

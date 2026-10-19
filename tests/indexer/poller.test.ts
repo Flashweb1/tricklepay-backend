@@ -77,6 +77,7 @@ const config: Config = {
   maxPagesPerTick: 1000,
   bodyLimit: 1048576,
   queryStringLimit: 2048,
+  compressionThresholdBytes: 1024,
   trustedProxies: [],
   summaryCacheTtlMs: 2000,
   readinessRetryAfterSeconds: 5,
