@@ -44,6 +44,18 @@ function integer(name: string, fallback: number): number {
   return parsed;
 }
 
+// Parses a boolean flag. Only explicit true/false spellings are accepted so a
+// typo fails at startup instead of silently flipping a security-relevant
+// setting, such as whether the interactive docs are served.
+function boolean(name: string, fallback: boolean): boolean {
+  const raw = process.env[name];
+  if (!raw || raw.trim() === "") return fallback;
+  const value = raw.trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(value)) return true;
+  if (["false", "0", "no", "off"].includes(value)) return false;
+  throw new Error(`Environment variable ${name} must be "true" or "false"`);
+}
+
 // Floor for the poll interval. Anything smaller makes the indexer spin on the
 // RPC between ledgers, so values below it are rejected rather than trusted.
 export const MIN_POLL_INTERVAL_MS = 1000;
@@ -112,6 +124,12 @@ export interface Config {
   bodyLimit: number;
   queryStringLimit: number;
   trustedProxies: string[];
+  // Optional bearer token for the metrics endpoint. When set, /metrics requires a
+  // matching Bearer token; when unset it is unauthenticated.
+  metricsToken?: string;
+  // Whether to enable the Swagger UI at /docs. When false, only /docs/json
+  // and /docs/yaml are available. Default: true.
+  enableDocsUi: boolean;
 }
 
 export function loadConfig(): Config {
@@ -141,5 +159,11 @@ export function loadConfig(): Config {
     queryStringLimit: integer("QUERY_STRING_LIMIT", 2048), // 2KB default
     // Forwarded headers are honored only for these direct peers (#75).
     trustedProxies: parseTrustedProxies(process.env.TRUSTED_PROXIES),
+    // Optional metrics token for bearer auth on /metrics endpoint. An empty
+    // value means "no token", preserving the unauthenticated default.
+    metricsToken: process.env.METRICS_TOKEN?.trim() || undefined,
+    // Swagger UI at /docs is enabled by default; disable with ENABLE_DOCS_UI=false.
+    // The machine-readable spec at /docs/json and /docs/yaml stays available.
+    enableDocsUi: boolean("ENABLE_DOCS_UI", true),
   };
 }

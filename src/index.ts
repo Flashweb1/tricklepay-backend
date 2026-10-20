@@ -16,7 +16,7 @@ async function main(): Promise<void> {
   await app.register(rootRoutes(config));
   await app.register(streamRoutes);
   await app.register(statusRoutes);
-  await app.register(metricsRoutes);
+  await app.register(metricsRoutes, { token: config.metricsToken });
 
   const poller = new Poller(createRpcServer(config), config, logger);
   // The indexer runs in the background alongside the HTTP server. A failure

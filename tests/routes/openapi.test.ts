@@ -34,9 +34,28 @@ vi.mock("../../src/repositories/indexer-state.js", () => indexerState);
 vi.mock("../../src/repositories/streams.js", () => streams);
 
 import { vi } from "vitest";
+import type { Config } from "../../src/config.js";
 import { buildServer } from "../../src/server.js";
 import { statusRoutes } from "../../src/routes/status.js";
 import { streamRoutes } from "../../src/routes/streams.js";
+
+// A complete config so tests can toggle individual settings (#521) without
+// mutating process.env and leaking state between test files.
+const baseConfig: Config = {
+  port: 3000,
+  host: "0.0.0.0",
+  databaseUrl: "postgresql://localhost:5432/test",
+  network: "testnet",
+  networkPassphrase: "Test SDF Network ; September 2015",
+  rpcUrl: "https://soroban-testnet.stellar.org",
+  contractId: "CDMB62RVYAXJJNYYH7K442SHSAJIXTZ6K7JANGSMQF2T7MHCTVSK75SW",
+  pollIntervalMs: 5000,
+  startLedger: 0,
+  bodyLimit: 1048576,
+  queryStringLimit: 2048,
+  trustedProxies: [],
+  enableDocsUi: true,
+};
 
 async function getSpec() {
   const app = await buildServer();
@@ -214,6 +233,70 @@ describe("GET /docs/json (OpenAPI spec)", () => {
       responses?: Record<string, unknown>;
     };
     expect(getById?.responses).toHaveProperty("404");
+  });
+});
+
+describe("Swagger UI optional (#521)", () => {
+  async function buildApp(config?: Config) {
+    const app = await buildServer(config);
+    await app.register(streamRoutes);
+    await app.register(statusRoutes);
+    await app.ready();
+    return app;
+  }
+
+  it("serves the Swagger UI at /docs by default", async () => {
+    const app = await buildApp();
+
+    const response = await app.inject({ method: "GET", url: "/docs" });
+    await app.close();
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/html");
+  });
+
+  it("serves only the machine-readable spec when the UI is disabled", async () => {
+    const app = await buildApp({ ...baseConfig, enableDocsUi: false });
+
+    // The UI page and its assets are gone, including the trailing-slash form.
+    const ui = await app.inject({ method: "GET", url: "/docs" });
+    const trailing = await app.inject({ method: "GET", url: "/docs/" });
+    const asset = await app.inject({
+      method: "GET",
+      url: "/docs/static/swagger-ui-bundle.js",
+    });
+    expect(ui.statusCode).toBe(404);
+    expect(trailing.statusCode).toBe(404);
+    expect(asset.statusCode).toBe(404);
+
+    // Both spec formats remain available.
+    const json = await app.inject({ method: "GET", url: "/docs/json" });
+    expect(json.statusCode).toBe(200);
+    expect(json.headers["content-type"]).toContain("application/json");
+    const spec = json.json() as {
+      openapi?: string;
+      paths?: Record<string, unknown>;
+    };
+    expect(spec.openapi).toMatch(/^3\.0\./);
+    expect(spec.paths).toHaveProperty("/streams");
+
+    const yaml = await app.inject({ method: "GET", url: "/docs/yaml" });
+    expect(yaml.statusCode).toBe(200);
+    expect(yaml.headers["content-type"]).toContain("yaml");
+    expect(yaml.body).toContain("openapi:");
+
+    await app.close();
+  });
+
+  it("keeps the hidden spec helper routes out of the document", async () => {
+    const app = await buildApp({ ...baseConfig, enableDocsUi: false });
+
+    const response = await app.inject({ method: "GET", url: "/docs/json" });
+    await app.close();
+
+    const spec = response.json() as { paths?: Record<string, unknown> };
+    expect(spec.paths).not.toHaveProperty("/docs/json");
+    expect(spec.paths).not.toHaveProperty("/docs/yaml");
   });
 });
 

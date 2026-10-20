@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Config } from "../../src/config.js";
 
 // Tests for stream route cache-control headers and ETag support.
 
@@ -16,7 +17,25 @@ vi.mock("../../src/repositories/streams.js", () => streamsRepo);
 const ACCOUNT = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
 const CONTRACT = "CBFS2HT4TIHTMWA5ZND6FEC27BRRA4V6JWOD7JIIDZVSPVAM7EJ2LZS7";
 
+const baseConfig: Config = {
+  port: 3000,
+  host: "0.0.0.0",
+  databaseUrl: "postgresql://localhost:5432/test",
+  network: "testnet",
+  networkPassphrase: "Test SDF Network ; September 2015",
+  rpcUrl: "https://soroban-testnet.stellar.org",
+  contractId: CONTRACT,
+  pollIntervalMs: 5000,
+  startLedger: 0,
+  bodyLimit: 1048576,
+  queryStringLimit: 2048,
+  trustedProxies: [],
+  enableDocsUi: true,
+};
+
 const { streamRoutes } = await import("../../src/routes/streams.js");
+// The query-string guard is wired in buildServer(), not in the route plugin.
+const { buildServer } = await import("../../src/server.js");
 
 function makeStream(overrides: Record<string, unknown> = {}) {
   return {
@@ -184,6 +203,71 @@ describe("GET /streams includeTotal", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual(expect.objectContaining({ total: 7 }));
     expect(streamsRepo.countStreams).toHaveBeenCalledWith({});
+  });
+});
+
+describe("Repeated query parameters (#519)", () => {
+  // A repeated filter is rejected rather than silently keeping the last value;
+  // see docs/query-parameters.md.
+  async function buildApp() {
+    const app = await buildServer();
+    await app.register(streamRoutes);
+    await app.ready();
+    return app;
+  }
+
+  it("rejects a repeated parameter with 400", async () => {
+    const app = await buildApp();
+    const response = await app.inject({ method: "GET", url: "/streams?sender=A&sender=B" });
+    await app.close();
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      code: "VALIDATION_ERROR",
+      error: "repeated query parameter: sender",
+    });
+  });
+
+  it("rejects identical repeated values too, so the error is unambiguous", async () => {
+    const app = await buildApp();
+    const response = await app.inject({ method: "GET", url: "/streams?sender=A&sender=A" });
+    await app.close();
+    expect(response.statusCode).toBe(400);
+  });
+
+  it("detects duplicates written with percent-encoding", async () => {
+    const app = await buildApp();
+    const response = await app.inject({ method: "GET", url: "/streams?sender=A&%73ender=B" });
+    await app.close();
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toHaveProperty("error", "repeated query parameter: sender");
+  });
+
+  it("accepts a single parameter and filters by it", async () => {
+    const app = await buildApp();
+    streamsRepo.listStreams.mockResolvedValue([]);
+    // Lowercase input is normalized to the canonical uppercase address.
+    const response = await app.inject({
+      method: "GET",
+      url: `/streams?sender=${ACCOUNT.toLowerCase()}`,
+    });
+    await app.close();
+
+    expect(response.statusCode).toBe(200);
+    expect(streamsRepo.listStreams).toHaveBeenCalledWith(
+      expect.objectContaining({ sender: ACCOUNT }),
+    );
+  });
+
+  it("rejects an oversized query string with 400 instead of crashing", async () => {
+    const app = await buildServer({ ...baseConfig, queryStringLimit: 5 });
+    await app.register(streamRoutes);
+    await app.ready();
+    const response = await app.inject({ method: "GET", url: "/streams?sender=abcdef" });
+    await app.close();
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toHaveProperty("error", "query string too long");
   });
 });
 

@@ -24,13 +24,13 @@ describe("parseTrustedProxies (#75)", () => {
 
   it("rejects a bad IP address", () => {
     expect(() => parseTrustedProxies("not-an-ip")).toThrow(
-      "TRUSTED_PROXIES entry is not a valid IP address or CIDR block",
+      'TRUSTED_PROXIES entry "not-an-ip" is not a valid IP address or CIDR block',
     );
   });
 
   it("rejects an invalid CIDR prefix length", () => {
     expect(() => parseTrustedProxies("10.0.0.0/33")).toThrow(
-      "TRUSTED_PROXIES entry has an invalid CIDR prefix; expected 0-32",
+      'TRUSTED_PROXIES entry "10.0.0.0/33" has an invalid CIDR prefix; expected 0-32',
     );
   });
 });
@@ -53,7 +53,8 @@ describe("isTrustedProxyAddress (#75)", () => {
   });
 
   it("returns false for an address outside the CIDR block", () => {
-    expect(isTrustedProxyAddress("10.0.0.25", ["10.0.0.0/24"])).toBe(false);
+    // 10.0.0.25 is inside 10.0.0.0/24; use the next subnet for the negative case.
+    expect(isTrustedProxyAddress("10.0.1.25", ["10.0.0.0/24"])).toBe(false);
   });
 });
 
@@ -76,7 +77,21 @@ describe("trustProxy wiring (#75)", () => {
   });
 
   it("honors XFF from the trusted proxy when configured", async () => {
-    const app = await buildServer({ trustedProxies: ["127.0.0.1"] });
+    const app = await buildServer({
+      trustedProxies: ["127.0.0.1"],
+      port: 3000,
+      host: "0.0.0.0",
+      databaseUrl: "postgres://test",
+      network: "testnet",
+      networkPassphrase: "Test SDF Network ; September 2015",
+      rpcUrl: "https://soroban-testnet.stellar.org",
+      contractId: "CA123",
+      pollIntervalMs: 5000,
+      startLedger: 0,
+      bodyLimit: 1048576,
+      queryStringLimit: 2048,
+      enableDocsUi: true,
+    });
     await app.register((await import("../../src/routes/streams.js")).streamRoutes);
 
     const response = await app.inject({

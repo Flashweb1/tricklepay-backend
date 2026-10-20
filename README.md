@@ -73,16 +73,26 @@ chain round-trip.
 | `GET` | `/health` | Liveness check. Returns 200 with the service version; performs no database read. |
 | `GET` | `/ready` | Readiness check. Verifies database connectivity and reports indexer lag; returns 503 when the database is unavailable. |
 | `GET` | `/status` | Indexer progress against the chain. |
-| `GET` | `/streams` | List streams. Query params: `sender`, `recipient`, `token`, `limit` (max 100), `offset` (max 10000), `includeTotal`, `cancelled`. Address filters accept lowercase and padded spellings and are normalized before matching. `total` is only included when `includeTotal=true`; `cancelled` filters by cancellation status when given, and is omitted to return both. |
+| `GET` | `/streams` | List streams. Query params: `sender`, `recipient`, `token`, `limit` (max 100), `offset` (max 10000), `includeTotal`, `cancelled`. Address filters accept lowercase and padded spellings and are normalized before matching. `total` is only included when `includeTotal=true`; `cancelled` filters by cancellation status when given, and is omitted to return both. Repeating a parameter is rejected with `400` — see [Query parameters](#query-parameters). |
 | `GET` | `/streams/summary` | Counts and exact amount totals per status (`pending`, `streaming`, `completed`, `cancelled`). |
 | `GET` | `/streams/:id` | A single stream by id. |
-| `GET` | `/metrics` | Prometheus metrics. |
-| `GET` | `/docs` | Interactive Swagger UI; the raw OpenAPI spec is served at `/docs/json` and `/docs/yaml`. |
+| `GET` | `/metrics` | Prometheus metrics. Set `METRICS_TOKEN` to require `Authorization: Bearer <token>`. |
+| `GET` | `/docs` | Interactive Swagger UI; the raw OpenAPI spec is served at `/docs/json` and `/docs/yaml`. Set `ENABLE_DOCS_UI=false` to disable the UI while keeping the spec. |
 
 Each stream is returned with its stored fields plus derived `vested`,
 `withdrawable`, `locked`, `progress`, and `status` (`pending`, `streaming`,
 `completed`, or `cancelled`). `progress` is vesting progress in basis points
 (0–10000). All amounts are strings to preserve 128-bit precision.
+
+### Query parameters
+
+Filter parameters are single-valued. Repeating one — `?sender=A&sender=B` — is
+rejected with `400 VALIDATION_ERROR` instead of silently keeping the last value,
+because a silent last-wins rule hides client mistakes and is a known
+parameter-pollution footgun. The same applies when the repeated values are
+identical, and when the second spelling is percent-encoded (for example
+`?sender=A&%73ender=B`). See
+[docs/query-parameters.md](docs/query-parameters.md) for the decision record.
 
 `/status` reports the indexer's own position and the chain's head as two
 separate figures, because only the distance between them means anything:
@@ -158,6 +168,14 @@ selected network (`SOROBAN_RPC_URL` to override), the server listens on
 request sizes. The indexer polls every `INDEXER_POLL_INTERVAL_MS` (minimum
 1000) starting from `INDEXER_START_LEDGER` — zero means start at the chain's
 latest ledger rather than replaying history.
+
+`ENABLE_DOCS_UI` (default `true`) controls only the interactive page at
+`/docs`: when it is `false`, the HTML UI and its static assets are not served,
+while `/docs/json` and `/docs/yaml` remain available for generated clients.
+`METRICS_TOKEN` is optional; when set, `/metrics` requires
+`Authorization: Bearer <token>`. Leave it empty to keep the endpoint
+unauthenticated, keep the recommended network restriction in place either way,
+and only send the token over TLS.
 
 ## Deployment
 

@@ -1,3 +1,4 @@
+import helmet from "@fastify/helmet";
 import cors from "@fastify/cors";
 import { randomUUID } from "node:crypto";
 import Fastify, {
@@ -113,10 +114,11 @@ export async function buildServer(config?: Config): Promise<FastifyInstance> {
     // logger, so it lands in every structured request log line as `reqId`.
     genReqId: (req) =>
       sanitizeRequestId(req.headers[REQUEST_ID_HEADER]) ?? randomUUID(),
+    // Parsing only: query-string validation must not throw from here. This
+    // callback runs during routing, before any hook, so a throw would escape
+    // Fastify's error handler and crash the process. Length and duplicate
+    // checks live in the onRequest hook below instead (#519).
     querystringParser: (str: string) => {
-      if (config?.queryStringLimit && str.length > config.queryStringLimit) {
-        throw new Error("query string too long");
-      }
       const params = new URLSearchParams(str);
       const result: Record<string, string> = {};
       params.forEach((value, key) => {
@@ -144,6 +146,41 @@ export async function buildServer(config?: Config): Promise<FastifyInstance> {
   // before routing, so even requests that fail early carry the header.
   app.addHook("onRequest", async (request, reply) => {
     reply.header(REQUEST_ID_HEADER, request.id);
+  });
+
+  // Query-string hardening (#519). Fastify parses the query string while
+  // routing, before any hook, so this runs after parsing but still before the
+  // route handler and before any database access.
+  //
+  // Repeating a parameter is rejected instead of silently keeping the last
+  // value, which would hide client mistakes and is a known parameter-pollution
+  // footgun. The parser itself must never throw: it runs during routing, where
+  // an exception bypasses Fastify's error handler and crashes the process.
+  app.addHook("onRequest", async (request, reply) => {
+    const rawUrl = request.raw.url ?? "";
+    const queryStart = rawUrl.indexOf("?");
+    if (queryStart === -1) return;
+    const query = rawUrl.slice(queryStart + 1);
+
+    if (config?.queryStringLimit && query.length > config.queryStringLimit) {
+      return reply.code(400).send({
+        code: errorCodeForStatus(400),
+        error: "query string too long",
+        requestId: request.id,
+      });
+    }
+
+    const seen = new Set<string>();
+    for (const key of new URLSearchParams(query).keys()) {
+      if (seen.has(key)) {
+        return reply.code(400).send({
+          code: errorCodeForStatus(400),
+          error: `repeated query parameter: ${key}`,
+          requestId: request.id,
+        });
+      }
+      seen.add(key);
+    }
   });
 
   // Attach the request id to error bodies so an error a client saw can be
@@ -188,6 +225,40 @@ export async function buildServer(config?: Config): Promise<FastifyInstance> {
   // keeps this builder synchronous for its callers.
   void app.register(cors, {
     origin: process.env.CORS_ORIGIN ?? true,
+  });
+
+  // Security headers (#520). This is a JSON API, but the interactive docs at
+  // /docs are served from the same origin, so the policy has to be strict for
+  // API responses while still allowing Swagger UI to load its own assets:
+  // its scripts are external files under /docs/static and it styles the page
+  // with inline style attributes, hence 'self' for scripts and 'unsafe-inline'
+  // for styles only. `upgrade-insecure-requests` is deliberately not set: the
+  // docs must keep working when the API is reached over plain HTTP in local
+  // development or through a TLS-terminating proxy. HSTS still applies when
+  // the request is actually served over HTTPS.
+  await app.register(helmet, {
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'", "https:", "data:"],
+        formAction: ["'self'"],
+        frameAncestors: ["'none'"],
+        imgSrc: ["'self'", "data:"],
+        objectSrc: ["'none'"],
+        scriptSrc: ["'self'"],
+        scriptSrcAttr: ["'none'"],
+        styleSrc: ["'self'", "https:", "'unsafe-inline'"],
+        // helmet merges this with its defaults; null removes the default
+        // directive for the reason described above.
+        upgradeInsecureRequests: null,
+      },
+    },
+    // The API is deliberately callable cross-origin (see CORS above), so the
+    // same-origin default would contradict that policy for non-CORS consumers.
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    referrerPolicy: { policy: "no-referrer" },
   });
 
   // Register shared schemas so routes can reference them with { $ref: "$id" }.
@@ -242,14 +313,34 @@ export async function buildServer(config?: Config): Promise<FastifyInstance> {
 
   // Serve the interactive Swagger UI at /docs and the raw spec at /docs/json
   // and /docs/yaml (these paths are the @fastify/swagger-ui defaults).
-  await app.register(swaggerUi, {
-    routePrefix: "/docs",
-    uiConfig: {
-      // Open the models panel by default so the schema components are visible.
-      defaultModelsExpandDepth: 2,
-      defaultModelExpandDepth: 3,
-    },
-  });
+  //
+  // ENABLE_DOCS_UI=false (#521) removes the UI plugin entirely, which also
+  // removes its HTML page and static assets. The machine-readable document is
+  // still served at the same paths, generated on demand from the route
+  // schemas, so spec consumers are unaffected. `hide: true` keeps these two
+  // helper routes out of the generated document itself.
+  if (config?.enableDocsUi ?? true) {
+    await app.register(swaggerUi, {
+      routePrefix: "/docs",
+      uiConfig: {
+        // Open the models panel by default so the schema components are visible.
+        defaultModelsExpandDepth: 2,
+        defaultModelExpandDepth: 3,
+      },
+    });
+  } else {
+    app.get("/docs/json", { schema: { hide: true } }, async (_request, reply) => {
+      return reply
+        .type("application/json; charset=utf-8")
+        .send(app.swagger());
+    });
+
+    app.get("/docs/yaml", { schema: { hide: true } }, async (_request, reply) => {
+      return reply
+        .type("application/yaml; charset=utf-8")
+        .send(app.swagger({ yaml: true }));
+    });
+  }
 
   app.get("/health", {
     schema: {

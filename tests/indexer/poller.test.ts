@@ -65,6 +65,8 @@ const config: Config = {
   startLedger: 0,
   bodyLimit: 1048576,
   queryStringLimit: 2048,
+  trustedProxies: [],
+  enableDocsUi: true,
 };
 
 const log = pino({ level: "silent" });
