@@ -28,6 +28,7 @@ const CONFIG: Config = {
   rateLimitMax: 100,
   rateLimitWindowMs: 60000,
   readinessRetryAfterSeconds: 5,
+  enableDocsUi: true,
 };
 
 // Kept as a literal rather than derived from `describeConfig`, so that adding a
@@ -38,9 +39,11 @@ const EXPECTED_FIELDS = [
   "compressionThresholdBytes",
   "contractId",
   "databaseUrl",
+  "enableDocsUi",
   "host",
   "maxBackoffMs",
   "maxPagesPerTick",
+  "metricsToken",
   "network",
   "networkPassphrase",
   "pollIntervalMs",
@@ -128,5 +131,12 @@ describe("describeConfig", () => {
 
   it("carries no credentials anywhere in the logged object", () => {
     expect(JSON.stringify(describeConfig(CONFIG))).not.toContain("s3cr3t");
+  });
+
+  it("redacts a configured metrics token rather than logging it", () => {
+    const described = describeConfig({ ...CONFIG, metricsToken: "top-s3cret" });
+
+    expect(described.metricsToken).toBe("[redacted]");
+    expect(JSON.stringify(described)).not.toContain("top-s3cret");
   });
 });

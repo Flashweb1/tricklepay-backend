@@ -143,6 +143,8 @@ The service exposes a REST API for querying indexed stream data and checking sys
 
 The specification is **generated automatically** from route schemas defined in the codebase. When you add or modify an endpoint in `src/routes/`, the OpenAPI document updates accordingly. The generation is handled by `@fastify/swagger` and `@fastify/swagger-ui`.
 
+Set `ENABLE_DOCS_UI=false` to disable only the interactive page: `/docs` and its static assets return 404, while `/docs/json` and `/docs/yaml` keep serving the machine-readable document.
+
 The document's `info.contact` entry points readers at the project repository, and its `servers` entry is built from configuration: it uses `PUBLIC_BASE_URL` when set, otherwise a URL derived from `HOST` and `PORT`, so generated clients get a sensible base URL to default to.
 
 **Accessing the specification:**
@@ -172,19 +174,29 @@ and why, see [docs/response-headers.md](docs/response-headers.md).
 | `GET` | `/health` | Liveness check. Returns 200 with the service version; performs no database read. |
 | `GET` | `/ready` | Readiness check. Verifies database connectivity and that the indexer has made progress; returns 503 when the database is unavailable or the indexer has not yet applied any events. |
 | `GET` | `/status` | Indexer progress against the chain. Response includes `Cache-Control: no-store` to prevent stale lag readings. |
-| `GET` | `/streams` | List streams. Query params: `sender`, `recipient`, `token`, `limit`, `offset`, `includeTotal`, `cancelled`, `cursor`. Address filters accept lowercase and padded spellings and are normalized before matching. `total` is only included when `includeTotal=true`; `cancelled` filters by cancellation status when given, and is omitted to return both. |
+| `GET` | `/streams` | List streams. Query params: `sender`, `recipient`, `token`, `limit`, `offset`, `includeTotal`, `cancelled`, `cursor`. Address filters accept lowercase and padded spellings and are normalized before matching. `total` is only included when `includeTotal=true`; `cancelled` filters by cancellation status when given, and is omitted to return both. Repeating a parameter is rejected with `400` — see [Query parameters](#query-parameters). |
 | `GET` | `/streams/summary` | Aggregate counts and exact total amounts per status (`pending`, `streaming`, `completed`, `cancelled`). Useful for dashboard overview displays without fetching individual streams. Response is cached for 30 seconds. |
 | `GET` | `/streams/:id` | A single stream by id. Also available as `HEAD`. |
 | `GET` | `/streams/:id/events` | A single stream's indexed event history, in ascending chain order. Optional `kind` filter (`created`, `withdrawn`, `cancelled`). |
 | `GET` | `/streams/:id/schedule` | Evenly spaced vesting curve points for charting, with the cliff instant included. Optional `points` query param (2–100, default 50). |
 | `GET` | `/accounts/:address/summary` | Incoming and outgoing stream counts and amount totals for a single Stellar address. |
 | `GET` | `/tokens` | Each distinct streamed token, with its stream count and total escrowed amount. |
-| `GET` | `/metrics` | Prometheus metrics. |
+| `GET` | `/metrics` | Prometheus metrics. Set `METRICS_TOKEN` to require `Authorization: Bearer <token>`. |
 
 Each stream is returned with its stored fields plus derived `vested`,
 `withdrawable`, `locked`, `progress`, and `status` (`pending`, `streaming`,
 `completed`, or `cancelled`). `progress` is vesting progress in basis points
 (0–10000).
+
+### Query parameters
+
+Filter parameters are single-valued. Repeating one — `?sender=A&sender=B` — is
+rejected with `400 VALIDATION_ERROR` instead of silently keeping the last value,
+because a silent last-wins rule hides client mistakes and is a known
+parameter-pollution footgun. The same applies when the repeated values are
+identical, and when the second spelling is percent-encoded (for example
+`?sender=A&%73ender=B`). See
+[docs/query-parameters.md](docs/query-parameters.md) for the decision record.
 
 ### Example Requests
 
@@ -426,7 +438,7 @@ The `GET /streams` endpoint supports pagination through the following query para
 **Revalidation:** `GET /streams` responses carry a weak `ETag` derived from the response body. Send it back in an `If-None-Match` header to receive `304 Not Modified` with no body when nothing changed, saving bandwidth on repeat polls. The `ETag` changes whenever any returned field changes (streams, `total`, `nextCursor`, or pagination).
 | `GET` | `/streams/summary` | Aggregate counts and exact total amounts per status (`pending`, `streaming`, `completed`, `cancelled`). Useful for dashboard overview displays without fetching individual streams. Response is cached for 30 seconds. |
 | `GET` | `/streams/:id` | A single stream by id. |
-| `GET` | `/metrics` | Prometheus metrics. |
+| `GET` | `/metrics` | Prometheus metrics. Set `METRICS_TOKEN` to require `Authorization: Bearer <token>`. |
 When `cursor` is provided, `offset` is ignored and the offset ceiling check
 below is skipped.
 
@@ -1013,6 +1025,8 @@ current template — copy it and fill in the required values.
 | `LOG_PRETTY` | No | - | Set to `true` for human-readable development logs; requires the `pino-pretty` dev dependency. Output stays JSON when unset. |
 | `BODY_LIMIT` | No | `1048576` | Largest accepted request body in bytes. |
 | `QUERY_STRING_LIMIT` | No | `2048` | Longest accepted URL query string in bytes. |
+| `ENABLE_DOCS_UI` | No | `true` | Serve the interactive Swagger UI at `/docs`. Set to `false` to disable the page and its static assets while `/docs/json` and `/docs/yaml` stay available. Accepts `true/false` (also `1/0`, `yes/no`, `on/off`); anything else fails startup. |
+| `METRICS_TOKEN` | No | - | Bearer token required on `/metrics` when set; unset keeps the endpoint unauthenticated. Only send it over TLS and keep the recommended network restriction. |
 | `COMPRESSION_THRESHOLD_BYTES` | No | `1024` | Responses at least this many bytes are compressed when the client accepts `gzip` or `br`. Smaller responses are sent uncompressed. |
 | `RATE_LIMIT_MAX` | No | `100` | Maximum requests per client IP in each rate-limit window. Must be greater than zero. |
 | `RATE_LIMIT_WINDOW_MS` | No | `60000` | Length of the fixed rate-limit window in milliseconds. Must be greater than zero. |

@@ -81,6 +81,7 @@ const config: Config = {
   trustedProxies: [],
   summaryCacheTtlMs: 2000,
   readinessRetryAfterSeconds: 5,
+  enableDocsUi: true,
 };
 
 const log = pino({ level: "silent" });

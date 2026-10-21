@@ -45,6 +45,18 @@ function integer(name: string, fallback: number): number {
   return parsed;
 }
 
+// Parses a boolean flag. Only explicit true/false spellings are accepted so a
+// typo fails at startup instead of silently flipping a security-relevant
+// setting, such as whether the interactive docs are served.
+function boolean(name: string, fallback: boolean): boolean {
+  const raw = process.env[name];
+  if (!raw || raw.trim() === "") return fallback;
+  const value = raw.trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(value)) return true;
+  if (["false", "0", "no", "off"].includes(value)) return false;
+  throw new Error(`Environment variable ${name} must be "true" or "false"`);
+}
+
 // Floor for the poll interval. Anything smaller makes the indexer spin on the
 // RPC between ledgers, so values below it are rejected rather than trusted.
 export const MIN_POLL_INTERVAL_MS = 1000;
@@ -192,6 +204,12 @@ export interface Config {
   readonly rateLimitMax?: number;
   readonly rateLimitWindowMs?: number;
   readonly readinessRetryAfterSeconds: number;
+  // Optional bearer token for the metrics endpoint. When set, /metrics requires
+  // a matching Bearer token; when unset it is unauthenticated.
+  readonly metricsToken?: string;
+  // Whether to serve the interactive Swagger UI at /docs. When false, only
+  // /docs/json and /docs/yaml are available. Default: true.
+  readonly enableDocsUi: boolean;
 }
 
 export function loadConfig(): Config {
@@ -259,6 +277,10 @@ export function loadConfig(): Config {
     rateLimitMax,
     rateLimitWindowMs,
     readinessRetryAfterSeconds,
+    // An empty value means "no token", preserving the unauthenticated default.
+    metricsToken: process.env.METRICS_TOKEN?.trim() || undefined,
+    // The UI is on by default; ENABLE_DOCS_UI=false serves only the spec.
+    enableDocsUi: boolean("ENABLE_DOCS_UI", true),
   };
 }
 
@@ -337,6 +359,9 @@ export function describeConfig(config: Config): LoggedConfig {
     // Undefined when rate limiting is not configured; pino omits the field.
     rateLimitMax: config.rateLimitMax,
     rateLimitWindowMs: config.rateLimitWindowMs,
+    // Never log the secret itself, only whether one is configured.
+    metricsToken: config.metricsToken ? "[redacted]" : undefined,
+    enableDocsUi: config.enableDocsUi,
     readinessRetryAfterSeconds: config.readinessRetryAfterSeconds,
   };
 }

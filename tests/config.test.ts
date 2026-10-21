@@ -501,4 +501,56 @@ describe("loadConfig — readonly configuration (#369)", () => {
   });
 });
 
+describe("loadConfig — ENABLE_DOCS_UI", () => {
+  it("enables the interactive docs by default", () => {
+    withEnv({ ENABLE_DOCS_UI: undefined }, () => {
+      expect(loadConfig().enableDocsUi).toBe(true);
+    });
+    withEnv({ ENABLE_DOCS_UI: "   " }, () => {
+      expect(loadConfig().enableDocsUi).toBe(true);
+    });
+  });
+
+  it("disables the UI for false spellings", () => {
+    for (const value of ["false", "0", "no", "off", "FALSE"]) {
+      withEnv({ ENABLE_DOCS_UI: value }, () => {
+        expect(loadConfig().enableDocsUi).toBe(false);
+      });
+    }
+  });
+
+  it("keeps the UI for true spellings", () => {
+    for (const value of ["true", "1", "yes", "on"]) {
+      withEnv({ ENABLE_DOCS_UI: value }, () => {
+        expect(loadConfig().enableDocsUi).toBe(true);
+      });
+    }
+  });
+
+  it("rejects an unrecognised value instead of guessing", () => {
+    withEnv({ ENABLE_DOCS_UI: "flase" }, () => {
+      expect(() => loadConfig()).toThrow(
+        'Environment variable ENABLE_DOCS_UI must be "true" or "false"',
+      );
+    });
+  });
+});
+
+describe("loadConfig — METRICS_TOKEN", () => {
+  it("leaves the endpoint unauthenticated when unset or blank", () => {
+    withEnv({ METRICS_TOKEN: undefined }, () => {
+      expect(loadConfig().metricsToken).toBeUndefined();
+    });
+    withEnv({ METRICS_TOKEN: "   " }, () => {
+      expect(loadConfig().metricsToken).toBeUndefined();
+    });
+  });
+
+  it("keeps a configured token, trimmed", () => {
+    withEnv({ METRICS_TOKEN: "  s3cret  " }, () => {
+      expect(loadConfig().metricsToken).toBe("s3cret");
+    });
+  });
+});
+
 

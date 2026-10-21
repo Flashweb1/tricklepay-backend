@@ -26,6 +26,7 @@ const mockConfig = {
   trustedProxies: [],
   summaryCacheTtlMs: 2000,
   readinessRetryAfterSeconds: 5,
+  enableDocsUi: true,
 };
 
 async function getRoot() {

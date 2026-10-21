@@ -52,6 +52,7 @@ function configWith(rpcUrl: string): Config {
     trustedProxies: [],
     summaryCacheTtlMs: 2000,
     readinessRetryAfterSeconds: 5,
+    enableDocsUi: true,
   };
 }
 

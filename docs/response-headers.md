@@ -1,6 +1,7 @@
 # Response Headers by Endpoint
 
-Every response carries `x-request-id` (see [request-ids.md](request-ids.md)).
+Every response carries `x-request-id` (see [request-ids.md](request-ids.md)) and
+the security headers described under [Security headers](#security-headers).
 Beyond that, which headers a response carries — and what a client may rely on
 — varies by route. This table states it explicitly so it doesn't have to be
 read back out of `src/routes/*.ts`, `src/health-routes.ts`, and
@@ -28,8 +29,24 @@ in an `onRequest` hook that runs before routing (`src/request-id-hook.ts`),
 so it's present even on a 404 for a path that matches no route, a 429 from
 the rate limiter, and a 400 from schema validation.
 
-`/docs`, `/docs/json`, and `/docs/yaml` aren't listed — their headers are
-`@fastify/swagger-ui`'s defaults, not a decision made in this codebase.
+`/docs`, `/docs/json`, and `/docs/yaml` aren't listed — their caching headers
+are `@fastify/swagger-ui`'s defaults. They do carry the security headers below,
+because those are registered globally before the docs plugin.
+
+## Security headers
+
+Every response — API, docs, error, and 404 — carries the same hardening headers,
+registered by [`src/security-headers.ts`](../src/security-headers.ts):
+
+| Header | Value | Why |
+| --- | --- | --- |
+| `X-Content-Type-Options` | `nosniff` | An error body is JSON; a browser must never sniff it as HTML. |
+| `Content-Security-Policy` | `default-src 'self'; …; frame-ancestors 'none'` | Restricts what the docs page and any rendered response may load. `script-src 'self'` and inline styles are allowed so the Swagger UI assets keep working; `upgrade-insecure-requests` is deliberately omitted so the docs work over plain HTTP in local development. |
+| `Referrer-Policy` | `no-referrer` | Query strings can carry addresses; never leak them to third parties. |
+| `Cross-Origin-Resource-Policy` | `cross-origin` | Matches the API's deliberate CORS policy for non-CORS consumers. |
+
+HSTS is left at helmet's default: it is emitted on the response but only
+honoured by browsers when the request is actually served over HTTPS.
 
 ## Why `Cache-Control` is set the way it is
 

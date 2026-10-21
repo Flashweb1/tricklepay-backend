@@ -44,6 +44,8 @@ import { registerRequestIdHook } from "./request-id-hook.js";
 
 import { registerSharedSchemas } from "./schema-registration.js";
 
+import { registerSecurityHeaders } from "./security-headers.js";
+
 // Request-id sanitisation lives in `./request-id.ts`, the echo hook in
 // `./request-id-hook.ts`, error redaction in `./error-redaction.ts`, error
 // handlers in `./error-handlers.ts`, shared schemas in `./schema-registration.ts`, and
@@ -95,9 +97,17 @@ export async function buildServer(config?: Partial<Config>): Promise<FastifyInst
     ajv: { customOptions: { removeAdditional: false } },
   });
 
-  // Enforce the query string length limit before routing.
+  // Query-string hardening (#519). Fastify parses the query string while
+  // routing, before any hook, so this runs after parsing but still before the
+  // route handler and before any database access.
+  //
+  // Repeating a parameter is rejected instead of silently keeping the last
+  // value, which would hide client mistakes and is a known parameter-pollution
+  // footgun. The parser itself must never throw: it runs during routing, where
+  // an exception bypasses Fastify's error handler and crashes the process.
   app.addHook("onRequest", async (request, reply) => {
     const rawQuery = request.raw.url?.split("?")[1] ?? "";
+
     if (config?.queryStringLimit && rawQuery.length > config.queryStringLimit) {
       void reply.status(400).send({
         code: "VALIDATION_ERROR",
@@ -105,6 +115,19 @@ export async function buildServer(config?: Partial<Config>): Promise<FastifyInst
         requestId: request.id,
       });
       return reply;
+    }
+
+    const seen = new Set<string>();
+    for (const key of new URLSearchParams(rawQuery).keys()) {
+      if (seen.has(key)) {
+        void reply.status(400).send({
+          code: errorCodeForStatus(400),
+          error: `repeated query parameter: ${key}`,
+          requestId: request.id,
+        });
+        return reply;
+      }
+      seen.add(key);
     }
   });
 
@@ -178,6 +201,10 @@ export async function buildServer(config?: Partial<Config>): Promise<FastifyInst
     threshold: compressionThresholdBytes,
   });
 
+  // Hardening headers on every response, including the docs and error handlers
+  // (#520). Registered before the routes so no route can miss them.
+  await registerSecurityHeaders(app);
+
   // Register shared schemas so routes can reference them with { $ref: "$id" }.
   // @fastify/swagger will emit them as named components in the spec.
   registerSharedSchemas(app);
@@ -187,7 +214,26 @@ export async function buildServer(config?: Partial<Config>): Promise<FastifyInst
 
   // Serve the interactive Swagger UI at /docs and the raw spec at /docs/json
   // and /docs/yaml (these paths are the @fastify/swagger-ui defaults).
-  await app.register(swaggerUi, swaggerUiConfig);
+  //
+  // ENABLE_DOCS_UI=false (#521) removes the UI plugin entirely — the HTML page
+  // and its static assets — while the machine-readable document stays at the
+  // same paths, generated on demand from the route schemas. `hide: true` keeps
+  // the two helper routes out of the document itself.
+  if (config?.enableDocsUi ?? true) {
+    await app.register(swaggerUi, swaggerUiConfig);
+  } else {
+    app.get("/docs/json", { schema: { hide: true } }, async (_request, reply) => {
+      return reply
+        .type("application/json; charset=utf-8")
+        .send(app.swagger());
+    });
+
+    app.get("/docs/yaml", { schema: { hide: true } }, async (_request, reply) => {
+      return reply
+        .type("application/yaml; charset=utf-8")
+        .send(app.swagger({ yaml: true }));
+    });
+  }
 
   // Liveness and readiness probes.
   registerHealthRoutes(app, readinessRetryAfterSeconds);
