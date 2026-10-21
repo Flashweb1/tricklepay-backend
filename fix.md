@@ -1,12 +1,12 @@
-The detail route supports ETags, so a client can revalidate cheaply, but the list route does not even though it is the most requested. Add a weak ETag derived from the response body and honour If-None-Match with a 304.
+Responses are sent uncompressed, and list responses with 100 streams are mostly repetitive JSON. Registering @fastify/compress with a size threshold would cut transfer size for clients that accept gzip or brotli.
 
 Acceptance criteria
 
-List responses carry an ETag.
+Responses above a threshold are compressed when the client accepts it.
 
-A matching If-None-Match returns 304 with no body.
+Small responses and clients without support are unaffected.
 
-The behaviour is documented and tested.
+A test checks the Content-Encoding header.
 
 
 
@@ -17,9 +17,7 @@ fill this pr message:
 
 <!-- What does this change do, and why? Keep it short. -->
 
-`GET /streams/:id` already supported `ETag` revalidation, but the list route (`GET /streams`) — the most requested endpoint — did not. This adds a weak `ETag` to list responses, derived from the serialized response body, and honours `If-None-Match` by returning `304 Not Modified` with no body when nothing changed. Clients that poll the list can now revalidate cheaply instead of re-downloading an unchanged page.
-
-The 304 response is declared in the route schema and the new revalidation behaviour is documented in the README and the request-lifecycle doc.
+Responses were sent uncompressed, so large list payloads (for example `/streams` with 100 streams) moved full-size repetitive JSON over the wire. This registers `@fastify/compress` in `buildServer` with a byte threshold read from a new `COMPRESSION_THRESHOLD_BYTES` setting (default 1024, 1 KiB). Responses at or above the threshold are now compressed for clients that advertise `gzip` or `br`; smaller responses and clients that do not opt in are unchanged. The resolved value is logged with the rest of the configuration and documented.
 
 ## Linked issue
 
@@ -35,9 +33,9 @@ the scenario covered (e.g. "npm test -- tests/indexer/apply.test.ts").
 
 - `npm run typecheck` — passes.
 - `npm run build` — passes.
-- `npx vitest run --project unit tests/routes/streams.test.ts` — 80 passed. New cases assert the list response carries a weak `ETag` (`W/"<sha256>"`), that identical bodies produce the same `ETag`, that a changed body produces a different `ETag`, that a matching `If-None-Match` returns `304` with an empty body, and that a non-matching or malformed header returns the full `200` body.
-- `npx vitest run --project unit tests/routes/streams.test.ts tests/routes/openapi.test.ts tests/routes/streams-list-contract.test.ts tests/routes/account-summary.test.ts` — 126 passed (the schema change does not break the OpenAPI or contract tests).
-- `npm test` — 629 passed; the single remaining failure (`tests/routes/stream-events.test.ts > returns 400 for an unknown kind`) is a pre-existing logic bug on `main` in the events handler, unrelated to this change.
+- `npx vitest run --project unit tests/routes/compression.test.ts` — 5 passed. Cases assert a response above the threshold carries `Content-Encoding: gzip` (and `br` when the client prefers it), a below-threshold response carries no `Content-Encoding`, a client sending `Accept-Encoding: identity` gets an uncompressed body, and the configured threshold is honoured (same body compresses at 512 but not at 8192).
+- `npx vitest run --project unit tests/config.test.ts tests/config-log.test.ts` — passes, including the new `COMPRESSION_THRESHOLD_BYTES` default/override cases and the redacted-config field list.
+- `npm test` — 623 passed; the single remaining failure (`tests/routes/stream-events.test.ts > returns 400 for an unknown kind`) is pre-existing on `main` and unrelated to this change.
 
 ## Checklist
 
