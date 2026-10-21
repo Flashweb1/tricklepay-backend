@@ -49,6 +49,7 @@ function configWith(rpcUrl: string): Config {
     queryStringLimit: 2048,
     trustedProxies: [],
     summaryCacheTtlMs: 2000,
+    readinessRetryAfterSeconds: 5,
   };
 }
 

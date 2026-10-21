@@ -23,6 +23,7 @@ const mockConfig = {
   queryStringLimit: 2048,
   trustedProxies: [],
   summaryCacheTtlMs: 2000,
+  readinessRetryAfterSeconds: 5,
 };
 
 async function getRoot() {

@@ -5,6 +5,7 @@ import {
   DEFAULT_MAX_PAGES_PER_TICK,
   DEFAULT_RATE_LIMIT_MAX,
   DEFAULT_RATE_LIMIT_WINDOW_MS,
+  DEFAULT_READINESS_RETRY_AFTER_SECONDS,
   DEFAULT_STREAM_SUMMARY_CACHE_TTL_MS,
   MIN_POLL_INTERVAL_MS,
   isLocalUrl,
@@ -106,6 +107,7 @@ describe("loadConfig — default values for unset optional settings", () => {
         INDEXER_MAX_PAGES_PER_TICK: undefined,
         STREAM_SUMMARY_CACHE_TTL_MS: undefined,
         TRUSTED_PROXIES: undefined,
+        READINESS_RETRY_AFTER_SECONDS: undefined,
       },
       () => {
         expect(loadConfig()).toMatchObject({
@@ -123,6 +125,7 @@ describe("loadConfig — default values for unset optional settings", () => {
           trustedProxies: [],
           rateLimitMax: DEFAULT_RATE_LIMIT_MAX,
           rateLimitWindowMs: DEFAULT_RATE_LIMIT_WINDOW_MS,
+          readinessRetryAfterSeconds: DEFAULT_READINESS_RETRY_AFTER_SECONDS,
         });
       },
     );
@@ -131,6 +134,12 @@ describe("loadConfig — default values for unset optional settings", () => {
   it("loads custom request rate limits", () => {
     withEnv({ RATE_LIMIT_MAX: "25", RATE_LIMIT_WINDOW_MS: "30000" }, () => {
       expect(loadConfig()).toMatchObject({ rateLimitMax: 25, rateLimitWindowMs: 30000 });
+    });
+  });
+
+  it("loads a custom readiness Retry-After value", () => {
+    withEnv({ READINESS_RETRY_AFTER_SECONDS: "30" }, () => {
+      expect(loadConfig().readinessRetryAfterSeconds).toBe(30);
     });
   });
 

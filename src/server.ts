@@ -16,6 +16,7 @@ import { swaggerConfig, swaggerUiConfig } from "./api-spec.js";
 import {
   DEFAULT_RATE_LIMIT_MAX,
   DEFAULT_RATE_LIMIT_WINDOW_MS,
+  DEFAULT_READINESS_RETRY_AFTER_SECONDS,
   type Config,
 } from "./config.js";
 
@@ -56,6 +57,8 @@ export async function buildServer(config?: Partial<Config>): Promise<FastifyInst
   const trustedProxies = config?.trustedProxies ?? [];
   const rateLimitMax = config?.rateLimitMax ?? DEFAULT_RATE_LIMIT_MAX;
   const rateLimitWindowMs = config?.rateLimitWindowMs ?? DEFAULT_RATE_LIMIT_WINDOW_MS;
+  const readinessRetryAfterSeconds =
+    config?.readinessRetryAfterSeconds ?? DEFAULT_READINESS_RETRY_AFTER_SECONDS;
   const app = Fastify({
     // Fastify types its logger as FastifyBaseLogger; the pino instance
     // satisfies that interface at runtime.
@@ -168,7 +171,7 @@ export async function buildServer(config?: Partial<Config>): Promise<FastifyInst
   await app.register(swaggerUi, swaggerUiConfig);
 
   // Liveness and readiness probes.
-  registerHealthRoutes(app);
+  registerHealthRoutes(app, readinessRetryAfterSeconds);
 
   return app;
 }
