@@ -3,8 +3,6 @@
 
 import { Prisma, type Stream } from "@prisma/client";
 
-import { StrKey } from "@stellar/stellar-sdk";
-
 import type { FastifyInstance } from "fastify";
 
 import { sendError, bigIntToStringNullable } from "../lib/response.js";
@@ -46,7 +44,7 @@ import {
   tokenSummarySchema,
 } from "../schema.js";
 import { listIndexedEvents, type IndexedEventKind } from "../repositories/indexed-events.js";
-import { vestedAmount } from "../lib/vesting.js";
+import { normalizeAddress } from "../lib/address.js";
 import { nowSeconds } from "../lib/time.js";
 import { vestedAmount, withdrawableAmount } from "../lib/vesting.js";
 import { DEFAULT_STREAM_SUMMARY_CACHE_TTL_MS } from "../config.js";
@@ -157,19 +155,6 @@ function parseCancelled(raw: string | undefined): boolean | undefined {
   if (raw === "true") return true;
   if (raw === "false") return false;
   return undefined;
-}
-
-// Stellar addresses are canonical uppercase base32 strkeys, but callers
-// sometimes send lowercase or whitespace-padded spellings. Normalize those
-// before matching so every rendering of one address filters identically, and
-// reject values that are neither a valid account nor a valid contract address.
-// Returns null when the input cannot be normalized safely.
-function normalizeAddress(raw: string): string | null {
-  const candidate = raw.trim().toUpperCase();
-  if (StrKey.isValidEd25519PublicKey(candidate) || StrKey.isValidContract(candidate)) {
-    return candidate;
-  }
-  return null;
 }
 
 const SUMMARY_STATUSES = ["pending", "streaming", "completed", "cancelled"] as const;

@@ -95,6 +95,7 @@ Comprehensive technical documentation and operational guides are maintained in t
 - [docs/README.md](docs/README.md): Index of all documentation guides and specifications.
 - [docs/database-schema.md](docs/database-schema.md): Complete schema documentation for all PostgreSQL models and audit tables.
 - [docs/event-replay.md](docs/event-replay.md): Operator guide for running the failed event replay recovery CLI.
+- [docs/poll-tick-sequence.md](docs/poll-tick-sequence.md): Sequence diagram of a single poll tick, from fetching events to saving the indexer's position.
 - [docs/failed-events-retention.md](docs/failed-events-retention.md): Retention policy and maintenance procedures for failed event records.
 - [docs/glossary.md](docs/glossary.md): Terminology definitions for domain and indexer concepts.
 
@@ -153,6 +154,10 @@ curl http://localhost:3000/docs/json > openapi.json
 # Fetch the YAML spec
 curl http://localhost:3000/docs/yaml > openapi.yaml
 ```
+
+For generating a typed TypeScript client from `/docs/json` for a frontend or
+third-party integration, see
+[docs/openapi-client-generation.md](docs/openapi-client-generation.md).
 
 ### Endpoints
 
