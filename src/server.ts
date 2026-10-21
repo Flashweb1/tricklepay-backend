@@ -42,11 +42,11 @@ import { REQUEST_ID_HEADER, sanitizeRequestId } from "./request-id.js";
 
 import { registerRequestIdHook } from "./request-id-hook.js";
 
-import { registerSharedSchemas } from "./schemas.js";
+import { registerSharedSchemas } from "./schema-registration.js";
 
 // Request-id sanitisation lives in `./request-id.ts`, the echo hook in
 // `./request-id-hook.ts`, error redaction in `./error-redaction.ts`, error
-// handlers in `./error-handlers.ts`, shared schemas in `./schemas.ts`, and
+// handlers in `./error-handlers.ts`, shared schemas in `./schema-registration.ts`, and
 // health routes in `./health-routes.ts` — all independently testable.
 
 // Builds the Fastify instance with the shared logger, CORS, the OpenAPI

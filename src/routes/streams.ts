@@ -6,12 +6,14 @@ import { createHash } from "node:crypto";
 import { Prisma, type Stream } from "@prisma/client";
 
 import { StrKey } from "@stellar/stellar-sdk";
+import type { Stream } from "@prisma/client";
 
 import type { FastifyInstance } from "fastify";
 
 import { sendError, bigIntToStringNullable } from "../lib/response.js";
 import { parsePagination } from "../lib/pagination.js";
 import { mapStreamResponse } from "../lib/stream-view.js";
+import { MAX_UINT64, parseStreamId } from "../lib/stream-id.js";
 
 import {
   aggregateStreams,
@@ -21,6 +23,8 @@ import {
   getStream,
   listStreams,
   listTokens,
+  statusWhere,
+  type StreamStatus,
 } from "../repositories/streams.js";
 
 import {
@@ -48,6 +52,7 @@ import {
   tokenSummarySchema,
 } from "../schema.js";
 import { listIndexedEvents, type IndexedEventKind } from "../repositories/indexed-events.js";
+import { normalizeAddress } from "../lib/address.js";
 import { nowSeconds } from "../lib/time.js";
 import { vestedAmount, withdrawableAmount } from "../lib/vesting.js";
 import { DEFAULT_STREAM_SUMMARY_CACHE_TTL_MS } from "../config.js";
@@ -70,23 +75,6 @@ type StreamStatus = "pending" | "streaming" | "completed" | "cancelled";
 
 function parseIncludeTotal(raw: string | undefined): boolean {
   return raw === "true";
-}
-
-const MAX_UINT64 = 18446744073709551615n;
-
-function parseStreamId(raw: string | undefined): bigint | null {
-  if (raw === undefined) return null;
-
-  const value = raw.trim();
-  if (value.length === 0 || !/^\d+$/.test(value)) return null;
-
-  try {
-    const parsed = BigInt(value);
-    if (parsed < 0n || parsed > MAX_UINT64) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
 }
 
 function parseAtTimestamp(raw: string | undefined): bigint | null {
@@ -170,19 +158,6 @@ function parseCancelled(raw: string | undefined): boolean | undefined {
   return undefined;
 }
 
-// Stellar addresses are canonical uppercase base32 strkeys, but callers
-// sometimes send lowercase or whitespace-padded spellings. Normalize those
-// before matching so every rendering of one address filters identically, and
-// reject values that are neither a valid account nor a valid contract address.
-// Returns null when the input cannot be normalized safely.
-function normalizeAddress(raw: string): string | null {
-  const candidate = raw.trim().toUpperCase();
-  if (StrKey.isValidEd25519PublicKey(candidate) || StrKey.isValidContract(candidate)) {
-    return candidate;
-  }
-  return null;
-}
-
 const SUMMARY_STATUSES = ["pending", "streaming", "completed", "cancelled"] as const;
 
 type SummaryEntry = { count: number; totalAmount: string; withdrawn: string };
@@ -226,19 +201,18 @@ export type StreamRoutesOptions = {
   summaryCacheTtlMs?: number;
 };
 
-// The database-side predicate for each lifecycle status, mirroring `statusOf`:
-// cancelled wins first, then the start/end time windows against the clock.
-function statusWhere(status: StreamStatus, now: bigint): Prisma.StreamWhereInput {
-  switch (status) {
-    case "cancelled":
-      return { cancelled: true };
-    case "pending":
-      return { cancelled: false, startTime: { gt: now } };
-    case "completed":
-      return { cancelled: false, endTime: { lte: now } };
-    case "streaming":
-      return { cancelled: false, startTime: { lte: now }, endTime: { gt: now } };
-  }
+// Mirrors the `querystring` JSON schema on GET /streams below field for
+// field, so a parameter renamed in one place without the other is a compile
+// error instead of a silently-undefined value at runtime.
+interface ListStreamsQuery {
+  sender?: string;
+  recipient?: string;
+  token?: string;
+  limit?: string;
+  offset?: string;
+  includeTotal?: string;
+  cancelled?: string;
+  cursor?: string;
 }
 
 export async function streamRoutes(
@@ -278,7 +252,7 @@ export async function streamRoutes(
   }
   if (!app.getSchema(ERROR_SCHEMA_ID)) app.addSchema(apiErrorSchema);
 
-  app.get(
+  app.get<{ Querystring: ListStreamsQuery }>(
     "/streams",
     {
       schema: {
@@ -356,16 +330,7 @@ export async function streamRoutes(
       },
     },
     async (request, reply) => {
-      const query = request.query as {
-        sender?: string;
-        recipient?: string;
-        token?: string;
-        limit?: string;
-        offset?: string;
-        includeTotal?: string;
-        cancelled?: string;
-        cursor?: string;
-      };
+      const query = request.query;
 
       const { limit, offset } = parsePagination(query);
 
