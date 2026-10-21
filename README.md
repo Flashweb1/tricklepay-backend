@@ -421,6 +421,12 @@ The `GET /streams` endpoint supports pagination through the following query para
 | `cursor` | string | - | - | Opaque cursor from a previous response for stable pagination |
 | `includeTotal` | boolean | false | - | When `true`, includes the total count of matching streams |
 
+**Note:** When `cursor` is provided, `offset` is ignored and offset ceiling checks are skipped. Use cursor-based pagination for stable results under concurrent inserts.
+
+**Revalidation:** `GET /streams` responses carry a weak `ETag` derived from the response body. Send it back in an `If-None-Match` header to receive `304 Not Modified` with no body when nothing changed, saving bandwidth on repeat polls. The `ETag` changes whenever any returned field changes (streams, `total`, `nextCursor`, or pagination).
+| `GET` | `/streams/summary` | Aggregate counts and exact total amounts per status (`pending`, `streaming`, `completed`, `cancelled`). Useful for dashboard overview displays without fetching individual streams. Response is cached for 30 seconds. |
+| `GET` | `/streams/:id` | A single stream by id. |
+| `GET` | `/metrics` | Prometheus metrics. |
 When `cursor` is provided, `offset` is ignored and the offset ceiling check
 below is skipped.
 

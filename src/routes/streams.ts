@@ -1,6 +1,11 @@
 // Registers the GET /streams, GET /streams/summary, GET /tokens, GET /streams/:id/events, and GET /streams/:id endpoints.
 // These routes read stream records, historical events, and aggregations from the database.
 
+import { createHash } from "node:crypto";
+
+import { Prisma, type Stream } from "@prisma/client";
+
+import { StrKey } from "@stellar/stellar-sdk";
 import type { Stream } from "@prisma/client";
 
 import type { FastifyInstance } from "fastify";
@@ -55,6 +60,18 @@ import { DEFAULT_STREAM_SUMMARY_CACHE_TTL_MS } from "../config.js";
 // Above this offset a scan gets expensive enough that callers should page
 // through results in order or narrow them with filters instead.
 const MAX_OFFSET = 10000;
+
+// Weak ETag for list responses, derived from the serialized body so it changes
+// whenever any returned field changes (streams, total, nextCursor, pagination).
+// "Weak" (W/) is correct here: the body is byte-identical between revalidations
+// for the same data, but we only guarantee semantic equivalence, matching the
+// detail route's revalidation model without a per-row version column.
+function weakEtagFromBody(body: unknown): string {
+  const digest = createHash("sha256").update(JSON.stringify(body)).digest("hex");
+  return `W/"${digest}"`;
+}
+
+type StreamStatus = "pending" | "streaming" | "completed" | "cancelled";
 
 function parseIncludeTotal(raw: string | undefined): boolean {
   return raw === "true";
@@ -229,6 +246,7 @@ export async function streamRoutes(
   }
   if (!app.getSchema(ACCOUNT_SUMMARY_RESPONSE_SCHEMA_ID)) {
     app.addSchema(accountSummaryResponseSchema);
+  }
   if (!app.getSchema(STREAM_SCHEDULE_RESPONSE_SCHEMA_ID)) {
     app.addSchema(streamScheduleResponseSchema);
   }
@@ -247,7 +265,8 @@ export async function streamRoutes(
           "Results are returned in a stable deterministic order: when filtering by sender, recipient, or token, " +
           "results are ordered by that address ascending, then by stream id descending to break ties. " +
           "Unfiltered queries (or queries filtered only by cancellation status) are ordered by stream id descending. " +
-          "Stream id is the final tie-breaker in all cases so pagination is cacheable and repeatable.",
+          "Stream id is the final tie-breaker in all cases so pagination is cacheable and repeatable. " +
+          "Responses carry a weak ETag derived from the body; send it back as If-None-Match to get a 304 with no body when nothing changed.",
         tags: ["streams"],
         querystring: {
           type: "object",
@@ -305,6 +324,7 @@ export async function streamRoutes(
         },
         response: {
           200: { $ref: STREAM_LIST_RESPONSE_SCHEMA_ID },
+          304: { type: "null" },
           400: { $ref: ERROR_SCHEMA_ID },
         },
       },
@@ -363,13 +383,25 @@ export async function streamRoutes(
       ]);
 
       reply.header("Cache-Control", "public, max-age=30");
-      return {
+
+      // Built once and reused for both the ETag and the returned body so the
+      // digest is derived from exactly the bytes the client would receive.
+      const body = {
         streams: listResult.streams.map((s) => mapStreamResponse(s)),
         ...(total === undefined ? {} : { total }),
         ...(listResult.nextCursor === undefined ? {} : { nextCursor: listResult.nextCursor }),
         limit,
         offset: usingCursor ? 0 : offset,
       };
+
+      const etag = weakEtagFromBody(body);
+      reply.header("ETag", etag);
+
+      if (request.headers["if-none-match"] === etag) {
+        return reply.code(304).send();
+      }
+
+      return body;
     },
   );
 
