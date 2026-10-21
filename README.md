@@ -158,7 +158,9 @@ curl http://localhost:3000/docs/yaml > openapi.yaml
 
 For generating a typed TypeScript client from `/docs/json` for a frontend or
 third-party integration, see
-[docs/openapi-client-generation.md](docs/openapi-client-generation.md).
+[docs/openapi-client-generation.md](docs/openapi-client-generation.md). For
+exactly which `Cache-Control`, `ETag`, and other headers each endpoint sets
+and why, see [docs/response-headers.md](docs/response-headers.md).
 
 ### Endpoints
 
@@ -170,13 +172,241 @@ third-party integration, see
 | `GET` | `/status` | Indexer progress against the chain. Response includes `Cache-Control: no-store` to prevent stale lag readings. |
 | `GET` | `/streams` | List streams. Query params: `sender`, `recipient`, `token`, `limit`, `offset`, `includeTotal`, `cancelled`, `cursor`. Address filters accept lowercase and padded spellings and are normalized before matching. `total` is only included when `includeTotal=true`; `cancelled` filters by cancellation status when given, and is omitted to return both. |
 | `GET` | `/streams/summary` | Aggregate counts and exact total amounts per status (`pending`, `streaming`, `completed`, `cancelled`). Useful for dashboard overview displays without fetching individual streams. Response is cached for 30 seconds. |
-| `GET` | `/streams/:id` | A single stream by id. |
+| `GET` | `/streams/:id` | A single stream by id. Also available as `HEAD`. |
+| `GET` | `/streams/:id/events` | A single stream's indexed event history, in ascending chain order. Optional `kind` filter (`created`, `withdrawn`, `cancelled`). |
+| `GET` | `/streams/:id/schedule` | Evenly spaced vesting curve points for charting, with the cliff instant included. Optional `points` query param (2–100, default 50). |
+| `GET` | `/accounts/:address/summary` | Incoming and outgoing stream counts and amount totals for a single Stellar address. |
+| `GET` | `/tokens` | Each distinct streamed token, with its stream count and total escrowed amount. |
 | `GET` | `/metrics` | Prometheus metrics. |
 
 Each stream is returned with its stored fields plus derived `vested`,
 `withdrawable`, `locked`, `progress`, and `status` (`pending`, `streaming`,
 `completed`, or `cancelled`). `progress` is vesting progress in basis points
 (0–10000).
+
+### Example Requests
+
+A copy-paste `curl` call and a trimmed response for every endpoint, against
+a local instance on the default port. Amounts (`uint128`) and times and ids
+(`uint64`) are always decimal strings, never JSON numbers — see
+[Data Types and Precision](#stream-summary-endpoint) below for why.
+
+**`GET /`**
+```bash
+curl -s http://localhost:3000/ | jq
+```
+```json
+{
+  "name": "tricklepay-backend",
+  "description": "Indexer and read API for TricklePay token streams",
+  "network": "testnet",
+  "contractId": "CDMB62RVYAXJJNYYH7K442SHSAJIXTZ6K7JANGSMQF2T7MHCTVSK75SW",
+  "endpoints": [
+    { "method": "GET", "path": "/health", "description": "Liveness check" },
+    { "method": "GET", "path": "/status", "description": "Indexer progress" },
+    { "method": "GET", "path": "/metrics", "description": "Prometheus metrics" },
+    { "method": "GET", "path": "/streams", "description": "List streams; filters: sender, recipient, token, limit, offset" },
+    { "method": "GET", "path": "/streams/:id", "description": "A single stream by id" }
+  ]
+}
+```
+
+**`GET /health`**
+```bash
+curl -s http://localhost:3000/health | jq
+```
+```json
+{ "status": "ok", "version": "0.1.0" }
+```
+
+**`GET /ready`**
+```bash
+curl -s http://localhost:3000/ready | jq
+```
+```json
+{ "status": "ready", "database": "up", "indexer": { "lagLedgers": 1234 } }
+```
+
+**`GET /status`**
+```bash
+curl -s http://localhost:3000/status | jq
+```
+```json
+{
+  "indexer": {
+    "initialized": true,
+    "startLedger": 0,
+    "lastLedger": 56290013,
+    "cursor": "0241763764928512000-0000000001",
+    "updatedAt": "2025-11-14T03:00:00.000Z"
+  },
+  "chain": { "latestLedger": 56999999 },
+  "lagLedgers": 709986,
+  "failedEventCount": 0
+}
+```
+
+**`GET /streams`** — list, optionally filtered by `sender`, `recipient`, or `token`
+```bash
+curl -s "http://localhost:3000/streams?limit=1" | jq
+```
+```json
+{
+  "streams": [
+    {
+      "id": "42",
+      "sender": "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+      "recipient": "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H",
+      "token": "CBFS2HT4TIHTMWA5ZND6FEC27BRRA4V6JWOD7JIIDZVSPVAM7EJ2LZS7",
+      "totalAmount": "100000000000000",
+      "withdrawn": "25000000000000",
+      "vested": "50000000000000",
+      "withdrawable": "25000000000000",
+      "locked": "50000000000000",
+      "progress": 5000,
+      "startTime": "1735689600",
+      "endTime": "1767225600",
+      "cliffTime": "1740000000",
+      "cancelled": false,
+      "status": "streaming",
+      "createdLedger": 100,
+      "updatedLedger": 200
+    }
+  ],
+  "limit": 1,
+  "offset": 0,
+  "nextCursor": "eyJzdHJlYW1JZCI6IjQyIn0"
+}
+```
+
+**`GET /streams/summary`**
+```bash
+curl -s http://localhost:3000/streams/summary | jq
+```
+```json
+{
+  "pending": { "count": 42, "totalAmount": "1000000000000000", "withdrawn": "0" },
+  "streaming": { "count": 123, "totalAmount": "5000000000000000", "withdrawn": "1250000000000000" },
+  "completed": { "count": 89, "totalAmount": "3000000000000000", "withdrawn": "3000000000000000" },
+  "cancelled": { "count": 5, "totalAmount": "250000000000000", "withdrawn": "100000000000000" }
+}
+```
+
+**`GET /streams/:id`**
+```bash
+curl -s http://localhost:3000/streams/42 | jq
+```
+```json
+{
+  "id": "42",
+  "sender": "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+  "recipient": "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H",
+  "token": "CBFS2HT4TIHTMWA5ZND6FEC27BRRA4V6JWOD7JIIDZVSPVAM7EJ2LZS7",
+  "totalAmount": "100000000000000",
+  "withdrawn": "25000000000000",
+  "vested": "50000000000000",
+  "withdrawable": "25000000000000",
+  "locked": "50000000000000",
+  "progress": 5000,
+  "startTime": "1735689600",
+  "endTime": "1767225600",
+  "cliffTime": "1740000000",
+  "cancelled": false,
+  "status": "streaming",
+  "createdLedger": 100,
+  "updatedLedger": 200
+}
+```
+
+**`GET /streams/:id/events`**
+```bash
+curl -s http://localhost:3000/streams/42/events | jq
+```
+```json
+[
+  {
+    "eventId": "0000000000000000000000000000000000000001-0000000000000001",
+    "kind": "created",
+    "streamId": "42",
+    "ledger": 123456,
+    "txHash": "66f7505577a417f4c1187fb8a8eeb6f3737f848d5f0b3b20c5a6c57ab7d659d1",
+    "sender": "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+    "recipient": "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H",
+    "token": "CBFS2HT4TIHTMWA5ZND6FEC27BRRA4V6JWOD7JIIDZVSPVAM7EJ2LZS7",
+    "totalAmount": "100000000000000",
+    "amount": null,
+    "recipientAmount": null,
+    "senderRefund": null,
+    "startTime": "1735689600",
+    "endTime": "1767225600",
+    "cliffTime": "1740000000",
+    "closedAt": "1735689600"
+  }
+]
+```
+
+**`GET /streams/:id/schedule`**
+```bash
+curl -s "http://localhost:3000/streams/42/schedule?points=3" | jq
+```
+```json
+{
+  "points": [
+    { "time": "1735689600", "amount": "0", "vested": "0" },
+    { "time": "1740000000", "amount": "13668188736681", "vested": "13668188736681" },
+    { "time": "1767225600", "amount": "100000000000000", "vested": "100000000000000" }
+  ]
+}
+```
+
+**`GET /accounts/:address/summary`**
+```bash
+curl -s http://localhost:3000/accounts/GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN/summary | jq
+```
+```json
+{
+  "incoming": {
+    "count": 3,
+    "totalAmount": "100000000000000",
+    "total": "100000000000000",
+    "withdrawn": "25000000000000",
+    "vested": "50000000000000",
+    "withdrawable": "25000000000000"
+  },
+  "outgoing": {
+    "count": 1,
+    "totalAmount": "40000000000000",
+    "total": "40000000000000",
+    "withdrawn": "10000000000000",
+    "vested": "20000000000000",
+    "withdrawable": "10000000000000"
+  }
+}
+```
+
+**`GET /tokens`**
+```bash
+curl -s http://localhost:3000/tokens | jq
+```
+```json
+[
+  {
+    "token": "CBFS2HT4TIHTMWA5ZND6FEC27BRRA4V6JWOD7JIIDZVSPVAM7EJ2LZS7",
+    "count": 12,
+    "total": "1000000000000000"
+  }
+]
+```
+
+**`GET /metrics`**
+```bash
+curl -s http://localhost:3000/metrics
+```
+```text
+# HELP tricklepay_indexer_lag_ledgers Gap between the chain's latest ledger and the highest ledger the indexer has applied
+# TYPE tricklepay_indexer_lag_ledgers gauge
+tricklepay_indexer_lag_ledgers 709986
+```
 
 ### Pagination Parameters
 
@@ -292,6 +522,7 @@ separate figures, because only the distance between them means anything:
 {
   "indexer": {
     "initialized": true,
+    "startLedger": 0,
     "lastLedger": 56290013,
     "cursor": "0241763764928512000-0000000001",
     "updatedAt": "2025-11-14T03:00:00.000Z"
@@ -399,7 +630,7 @@ The service exposes two health endpoints that answer different questions. Wire t
 ```json
 {
   "status": "ok",
-  "version": "1.0.0"
+  "version": "0.1.0"
 }
 ```
 

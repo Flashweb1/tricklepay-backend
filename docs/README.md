@@ -34,6 +34,7 @@ This directory contains technical documentation and operational guides for the T
 - [poll-tick-sequence.md](poll-tick-sequence.md): Mermaid sequence diagram of a single poll tick, from fetching a page of events through decoding, applying, recording failures, and saving the new position.
 - [resource-footprint.md](resource-footprint.md): Indicative deployment sizing, per-process Prisma connection usage, and how retained event volume affects PostgreSQL storage growth.
 - [request-ids.md](request-ids.md): Documentation on Request ID behavior, client-supplied header validation (`x-request-id`), and traceability in responses and logs.
+- [response-headers.md](response-headers.md): Table of which `Cache-Control`, `ETag`, and other headers each endpoint sets, and why, matched against the route code.
 - [request-size-limits.md](request-size-limits.md): Documentation on request body and query string size limits, including defaults, configuration, and rejection behavior.
 
 ## When to add a new document here
