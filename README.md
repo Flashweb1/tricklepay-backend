@@ -95,6 +95,7 @@ Comprehensive technical documentation and operational guides are maintained in t
 - [docs/README.md](docs/README.md): Index of all documentation guides and specifications.
 - [docs/database-schema.md](docs/database-schema.md): Complete schema documentation for all PostgreSQL models and audit tables.
 - [docs/event-replay.md](docs/event-replay.md): Operator guide for running the failed event replay recovery CLI.
+- [docs/debugging-a-stream.md](docs/debugging-a-stream.md): Queries to reconstruct a single stream from its event history and spot a gap or duplicate.
 - [docs/poll-tick-sequence.md](docs/poll-tick-sequence.md): Sequence diagram of a single poll tick, from fetching events to saving the indexer's position.
 - [docs/failed-events-retention.md](docs/failed-events-retention.md): Retention policy and maintenance procedures for failed event records.
 - [docs/glossary.md](docs/glossary.md): Terminology definitions for domain and indexer concepts.
@@ -168,6 +169,14 @@ third-party integration, see
 | `GET` | `/ready` | Readiness check. Verifies database connectivity and that the indexer has made progress; returns 503 when the database is unavailable or the indexer has not yet applied any events. |
 | `GET` | `/status` | Indexer progress against the chain. Response includes `Cache-Control: no-store` to prevent stale lag readings. |
 | `GET` | `/streams` | List streams. Query params: `sender`, `recipient`, `token`, `limit`, `offset`, `includeTotal`, `cancelled`, `cursor`. Address filters accept lowercase and padded spellings and are normalized before matching. `total` is only included when `includeTotal=true`; `cancelled` filters by cancellation status when given, and is omitted to return both. |
+| `GET` | `/streams/summary` | Aggregate counts and exact total amounts per status (`pending`, `streaming`, `completed`, `cancelled`). Useful for dashboard overview displays without fetching individual streams. Response is cached for 30 seconds. |
+| `GET` | `/streams/:id` | A single stream by id. |
+| `GET` | `/metrics` | Prometheus metrics. |
+
+Each stream is returned with its stored fields plus derived `vested`,
+`withdrawable`, `locked`, `progress`, and `status` (`pending`, `streaming`,
+`completed`, or `cancelled`). `progress` is vesting progress in basis points
+(0–10000).
 
 ### Pagination Parameters
 
@@ -180,15 +189,74 @@ The `GET /streams` endpoint supports pagination through the following query para
 | `cursor` | string | - | - | Opaque cursor from a previous response for stable pagination |
 | `includeTotal` | boolean | false | - | When `true`, includes the total count of matching streams |
 
-**Note:** When `cursor` is provided, `offset` is ignored and offset ceiling checks are skipped. Use cursor-based pagination for stable results under concurrent inserts.
-| `GET` | `/streams/summary` | Aggregate counts and exact total amounts per status (`pending`, `streaming`, `completed`, `cancelled`). Useful for dashboard overview displays without fetching individual streams. Response is cached for 30 seconds. |
-| `GET` | `/streams/:id` | A single stream by id. |
-| `GET` | `/metrics` | Prometheus metrics. |
+When `cursor` is provided, `offset` is ignored and the offset ceiling check
+below is skipped.
 
-Each stream is returned with its stored fields plus derived `vested`,
-`withdrawable`, `locked`, `progress`, and `status` (`pending`, `streaming`,
-`completed`, or `cancelled`). `progress` is vesting progress in basis points
-(0–10000).
+#### offset vs. cursor: why the results can differ
+
+`offset` pages by position — "skip N rows, then take the next `limit`" —
+against a list ordered by stream id descending (newest first; see the
+`/streams` endpoint description above for the full ordering rule when an
+address filter is applied). That position shifts under you if a row is
+inserted or removed between requests, because the set of rows that exists
+"before" a given position has changed.
+
+Concretely: with streams `101`–`105` already indexed, a client fetches
+`?limit=2&offset=0` and gets `[105, 104]` (newest first). Before it asks for
+the next page, stream `106` is indexed. The client then fetches
+`?limit=2&offset=2`, expecting to continue with `[103, 102]`, but `106` is
+now the newest row and has pushed everything down by one position: position 2
+is stream `104` again. The response is `[104, 103]` — **`104` is returned
+twice, and `106` is never returned at all**, because the client had already
+moved past the position it would have appeared in. A deletion between
+requests has the opposite effect: everything shifts up by one, and a row gets
+skipped instead of repeated.
+
+`cursor` pages by value instead of position: the response's `nextCursor`
+encodes the id of the last stream already returned, and the next request
+asks for rows strictly before that id (`streamId < cursor`, same descending
+order). A newly inserted stream gets a newer id than anything already paged
+past, so it never falls inside a window that has already been returned, and a
+cancelled or otherwise-unchanged stream never moves relative to the cursor.
+Pagination is therefore stable under concurrent inserts, at the cost of not
+being able to jump to an arbitrary page — only "next."
+
+**Prefer `cursor` whenever you are paging through more than one page of
+results**, especially for a backfill, export, or anything long-running enough
+for the table to change underneath it. `offset` is fine for a single page, or
+for jumping to a known position (e.g. a UI page number) where occasionally
+seeing a duplicate or missing row at the boundary is acceptable.
+
+#### Why offset is capped at 10,000
+
+An `offset` that large forces Postgres to scan and discard that many rows
+before it can return the page, which gets slow as the offset grows — exactly
+the kind of scan a client doing bulk pagination should not be doing anyway.
+Requests with `offset` over 10,000 are rejected with `400 VALIDATION_ERROR`
+instead of being served slowly; `cursor`-based pagination has no such ceiling
+because it is a keyset lookup (`streamId < cursor`) that stays fast regardless
+of how many pages precede it.
+
+#### Following `nextCursor` to fetch every page
+
+```ts
+let cursor: string | undefined;
+const allStreams = [];
+
+do {
+  const url = new URL("http://localhost:3000/streams");
+  url.searchParams.set("limit", "100");
+  if (cursor) url.searchParams.set("cursor", cursor);
+
+  const page = await fetch(url).then((r) => r.json());
+  allStreams.push(...page.streams);
+  cursor = page.nextCursor; // undefined once the last page is reached
+} while (cursor);
+```
+
+`nextCursor` is present only when another page follows; its absence from the
+response is the end-of-results signal, not an empty `streams` array (the last
+page can still hold up to `limit` rows).
 
 ### Stream Summary Endpoint
 
@@ -419,7 +487,7 @@ sum(rate(tricklepay_http_requests_total{status=~"5.."}[5m])) / sum(rate(tricklep
 
 ## Running locally
 
-Requires **Node.js 20.12 or later**, Docker, and the deployed contract id. The minimum is Node 20.12 because the service uses the built-in `node:` protocol imports and native fetch, which are only fully stable from that release onward — older versions will fail at install or startup. The `engines.node` field in [package.json](package.json) encodes this requirement (`>=20.12`), and the repository also includes a `.nvmrc` pinned to `20.12.0` so `nvm use` drops you onto the right version automatically.
+Requires **Node.js 20.12 or later**, Docker, and the deployed contract id. The minimum is Node 20.12 because the service uses the built-in `node:` protocol imports and native fetch, which are only fully stable from that release onward — older versions will fail at install or startup. The `engines.node` field in [package.json](package.json) encodes this requirement (`>=20.12`), and the repository also includes a `.nvmrc` pinned to `20.12.0` so `nvm use` drops you onto the right version automatically. Production runs on a newer Node than this floor; see [docs/node-version-policy.md](docs/node-version-policy.md) for the minimum, tested, and production versions and why they differ.
 
 ```bash
 nvm use
@@ -695,7 +763,7 @@ current template — copy it and fill in the required values.
 | `DATABASE_URL` | **Yes** | - | Postgres connection string. |
 | `STREAM_CONTRACT_ID` | **Yes** | - | Deployed Soroban contract address. |
 | `NETWORK` | No | `testnet` | Stellar network (`testnet` or `mainnet`). |
-| `SOROBAN_RPC_URL` | No | *network dependent* | Soroban RPC endpoint. Defaults to the public endpoint for the selected network. |
+| `SOROBAN_RPC_URL` | No | *network dependent* | Soroban RPC endpoint. Defaults to the public endpoint for the selected network. Plain `http://` is only accepted for `localhost`, `127.0.0.0/8`, or `::1`/`[::1]`; any other host must use `https://` or startup fails — see [Plain HTTP is only allowed for local RPC hosts](docs/local-network.md#plain-http-is-only-allowed-for-local-rpc-hosts). |
 | `PORT` | No | `3000` | HTTP server listen port. |
 | `HOST` | No | `0.0.0.0` | HTTP server bind address. |
 | `CORS_ORIGIN` | No | - | Allowed browser origin for the web client. |
