@@ -53,7 +53,13 @@ describe("normalizeAddress", () => {
     // contract never accepts one as a sender, recipient, or token — only
     // plain accounts and contracts. It must fail both checks and come back
     // null rather than being silently accepted as an account.
-    const muxed = StrKey.encodeMed25519PublicKey(StrKey.decodeEd25519PublicKey(ACCOUNT), 12345);
+    // stellar-base encodes a muxed key from the raw 32-byte key followed by the
+    // 8-byte big-endian id; the two-argument helper was removed in SDK 13.
+    const muxedId = Buffer.alloc(8);
+    muxedId.writeBigUInt64BE(12345n);
+    const muxed = StrKey.encodeMed25519PublicKey(
+      Buffer.concat([StrKey.decodeEd25519PublicKey(ACCOUNT), muxedId]),
+    );
 
     it("rejects a valid muxed address", () => {
       expect(normalizeAddress(muxed)).toBeNull();

@@ -6,7 +6,6 @@ import { createHash } from "node:crypto";
 import { Prisma, type Stream } from "@prisma/client";
 
 import { StrKey } from "@stellar/stellar-sdk";
-import type { Stream } from "@prisma/client";
 
 import type { FastifyInstance } from "fastify";
 
@@ -24,7 +23,6 @@ import {
   listStreams,
   listTokens,
   statusWhere,
-  type StreamStatus,
 } from "../repositories/streams.js";
 
 import {
