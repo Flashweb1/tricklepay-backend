@@ -1,32 +1,46 @@
-## Description
-`GET /ready` returned 503 with a reason but no hint of when to retry, which leaves orchestrators and load balancers guessing how often to probe — awkward while a long backfill is running. This adds a `Retry-After` header (in seconds) to every not-ready response so probes can pace themselves. The value is configurable via the new `READINESS_RETRY_AFTER_SECONDS` environment variable (default `5`), documented in `.env.example`, the README configuration table, the readiness section, and the failure-modes/indexer-lag docs. Ready (200) responses and `/health` do not carry the header.
+Responses are sent uncompressed, and list responses with 100 streams are mostly repetitive JSON. Registering @fastify/compress with a size threshold would cut transfer size for clients that accept gzip or brotli.
 
-**Fixes:** #486
+Acceptance criteria
 
-## Type of change
+Responses above a threshold are compressed when the client accepts it.
 
-Please delete options that are not relevant.
+Small responses and clients without support are unaffected.
 
-- [ ] Bug fix (non-breaking change which fixes an issue)
-- [x] New feature (non-breaking change which adds functionality)
-- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
-- [ ] Setup/Infrastructure configuration
+A test checks the Content-Encoding header.
 
-## How Has This Tested?
 
-Please describe the tests that you ran to verify your changes. Provide instructions so we can reproduce.
 
-- [x] Local manual testing (Please describe): verified via unit tests asserting the `Retry-After` header value on not-ready responses from both not-ready paths (database down and no indexer progress), a configured override (`30`), and its absence on ready and `/health` responses.
-- [x] Unit/Integration Tests: added cases in `tests/routes/health.test.ts` and `tests/config.test.ts`.
-- [ ] Verified on local Soroban/Stellar testnet
 
-## Checklist:
+When you're done with the above and it good to go
+fill this pr message:
+## Summary
 
-- [ ] I have reviewed the [Contributor Issue Validation Checklist](/docs/contributing/ISSUE_VALIDATION_CHECKLIST.md)
-- [x] My code follows the style guidelines of this project
-- [x] I have performed a self-review of my own code
-- [x] I have commented my code, particularly in hard-to-understand areas
-- [x] I have made corresponding changes to the documentation
-- [x] My changes generate no new linting warnings or TypeScript errors
-- [x] I have added tests that prove my fix is effective or that my feature works
-- [x] New and existing unit tests pass locally with my changes
+<!-- What does this change do, and why? Keep it short. -->
+
+Responses were sent uncompressed, so large list payloads (for example `/streams` with 100 streams) moved full-size repetitive JSON over the wire. This registers `@fastify/compress` in `buildServer` with a byte threshold read from a new `COMPRESSION_THRESHOLD_BYTES` setting (default 1024, 1 KiB). Responses at or above the threshold are now compressed for clients that advertise `gzip` or `br`; smaller responses and clients that do not opt in are unchanged. The resolved value is logged with the rest of the configuration and documented.
+
+## Linked issue
+
+<!-- Every PR should link the issue it closes. -->
+Closes #
+
+## What was tested
+
+<!--
+Describe what you ran and what it proves. Include commands and, where useful,
+the scenario covered (e.g. "npm test -- tests/indexer/apply.test.ts").
+-->
+
+- `npm run typecheck` — passes.
+- `npm run build` — passes.
+- `npx vitest run --project unit tests/routes/compression.test.ts` — 5 passed. Cases assert a response above the threshold carries `Content-Encoding: gzip` (and `br` when the client prefers it), a below-threshold response carries no `Content-Encoding`, a client sending `Accept-Encoding: identity` gets an uncompressed body, and the configured threshold is honoured (same body compresses at 512 but not at 8192).
+- `npx vitest run --project unit tests/config.test.ts tests/config-log.test.ts` — passes, including the new `COMPRESSION_THRESHOLD_BYTES` default/override cases and the redacted-config field list.
+- `npm test` — 623 passed; the single remaining failure (`tests/routes/stream-events.test.ts > returns 400 for an unknown kind`) is pre-existing on `main` and unrelated to this change.
+
+## Checklist
+
+- [x] `npm run typecheck` passes
+- [x] `npm test` passes
+- [x] `npm run build` passes
+- [x] The change is covered by tests (or the reason it can't be is explained above)
+- [x] Documentation updated when behaviour changed

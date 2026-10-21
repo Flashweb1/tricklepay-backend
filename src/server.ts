@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import cors from "@fastify/cors";
 
+import compress from "@fastify/compress";
+
 import swagger from "@fastify/swagger";
 
 import swaggerUi from "@fastify/swagger-ui";
@@ -11,12 +13,14 @@ import Fastify, {
   type FastifyInstance,
 } from "fastify";
 
-import { swaggerConfig, swaggerUiConfig } from "./api-spec.js";
+import { buildSwaggerConfig, swaggerUiConfig } from "./api-spec.js";
 
 import {
   DEFAULT_RATE_LIMIT_MAX,
   DEFAULT_RATE_LIMIT_WINDOW_MS,
   DEFAULT_READINESS_RETRY_AFTER_SECONDS,
+  DEFAULT_COMPRESSION_THRESHOLD_BYTES,
+  defaultPublicBaseUrl,
   type Config,
 } from "./config.js";
 
@@ -59,6 +63,11 @@ export async function buildServer(config?: Partial<Config>): Promise<FastifyInst
   const rateLimitWindowMs = config?.rateLimitWindowMs ?? DEFAULT_RATE_LIMIT_WINDOW_MS;
   const readinessRetryAfterSeconds =
     config?.readinessRetryAfterSeconds ?? DEFAULT_READINESS_RETRY_AFTER_SECONDS;
+  const publicBaseUrl =
+    config?.publicBaseUrl ??
+    defaultPublicBaseUrl(config?.host ?? "0.0.0.0", config?.port ?? 3000);
+  const compressionThresholdBytes =
+    config?.compressionThresholdBytes ?? DEFAULT_COMPRESSION_THRESHOLD_BYTES;
   const app = Fastify({
     // Fastify types its logger as FastifyBaseLogger; the pino instance
     // satisfies that interface at runtime.
@@ -159,12 +168,22 @@ export async function buildServer(config?: Partial<Config>): Promise<FastifyInst
     origin: process.env.CORS_ORIGIN ?? true,
   });
 
+  // Compress responses at or above the configured threshold when the client
+  // advertises gzip or brotli support. Large list responses are repetitive
+  // JSON, so this cuts transfer size; smaller responses and clients that do
+  // not opt in are served uncompressed. Registered before the routes so the
+  // onSend hook applies to every response.
+  void app.register(compress, {
+    global: true,
+    threshold: compressionThresholdBytes,
+  });
+
   // Register shared schemas so routes can reference them with { $ref: "$id" }.
   // @fastify/swagger will emit them as named components in the spec.
   registerSharedSchemas(app);
 
   // Generate the OpenAPI 3.0 spec from route schemas automatically.
-  await app.register(swagger, swaggerConfig);
+  await app.register(swagger, buildSwaggerConfig(publicBaseUrl));
 
   // Serve the interactive Swagger UI at /docs and the raw spec at /docs/json
   // and /docs/yaml (these paths are the @fastify/swagger-ui defaults).

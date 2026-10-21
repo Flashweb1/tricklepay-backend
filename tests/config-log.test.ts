@@ -10,6 +10,7 @@ import { type Config, describeConfig, redactDatabaseUrl } from "../src/config.js
 const CONFIG: Config = {
   port: 3000,
   host: "0.0.0.0",
+  publicBaseUrl: "https://api.tricklepay.example",
   databaseUrl: "postgresql://indexer:s3cr3t@db.internal:5432/tricklepay?schema=public",
   network: "testnet",
   networkPassphrase: "Test SDF Network ; September 2015",
@@ -22,6 +23,7 @@ const CONFIG: Config = {
   summaryCacheTtlMs: 2000,
   bodyLimit: 1048576,
   queryStringLimit: 2048,
+  compressionThresholdBytes: 1024,
   trustedProxies: ["10.0.0.0/8"],
   rateLimitMax: 100,
   rateLimitWindowMs: 60000,
@@ -33,6 +35,7 @@ const CONFIG: Config = {
 // the type checker.
 const EXPECTED_FIELDS = [
   "bodyLimit",
+  "compressionThresholdBytes",
   "contractId",
   "databaseUrl",
   "host",
@@ -42,6 +45,7 @@ const EXPECTED_FIELDS = [
   "networkPassphrase",
   "pollIntervalMs",
   "port",
+  "publicBaseUrl",
   "queryStringLimit",
   "rateLimitMax",
   "rateLimitWindowMs",

@@ -143,6 +143,8 @@ The service exposes a REST API for querying indexed stream data and checking sys
 
 The specification is **generated automatically** from route schemas defined in the codebase. When you add or modify an endpoint in `src/routes/`, the OpenAPI document updates accordingly. The generation is handled by `@fastify/swagger` and `@fastify/swagger-ui`.
 
+The document's `info.contact` entry points readers at the project repository, and its `servers` entry is built from configuration: it uses `PUBLIC_BASE_URL` when set, otherwise a URL derived from `HOST` and `PORT`, so generated clients get a sensible base URL to default to.
+
 **Accessing the specification:**
 
 ```bash
@@ -1000,10 +1002,12 @@ current template — copy it and fill in the required values.
 | `PORT` | No | `3000` | HTTP server listen port. |
 | `HOST` | No | `0.0.0.0` | HTTP server bind address. |
 | `CORS_ORIGIN` | No | - | Allowed browser origin for the web client. |
+| `PUBLIC_BASE_URL` | No | `http://<HOST>:<PORT>` | Base URL advertised in the generated OpenAPI document's `servers` entry. Defaults to a URL derived from `HOST` and `PORT`. |
 | `LOG_LEVEL` | No | `info` | Log verbosity (`trace`, `debug`, `info`, `warn`, `error`, `fatal`, `silent`). |
 | `LOG_PRETTY` | No | - | Set to `true` for human-readable development logs; requires the `pino-pretty` dev dependency. Output stays JSON when unset. |
 | `BODY_LIMIT` | No | `1048576` | Largest accepted request body in bytes. |
 | `QUERY_STRING_LIMIT` | No | `2048` | Longest accepted URL query string in bytes. |
+| `COMPRESSION_THRESHOLD_BYTES` | No | `1024` | Responses at least this many bytes are compressed when the client accepts `gzip` or `br`. Smaller responses are sent uncompressed. |
 | `RATE_LIMIT_MAX` | No | `100` | Maximum requests per client IP in each rate-limit window. Must be greater than zero. |
 | `RATE_LIMIT_WINDOW_MS` | No | `60000` | Length of the fixed rate-limit window in milliseconds. Must be greater than zero. |
 | `TRUSTED_PROXIES` | No | - | Comma-separated list of trusted reverse-proxy addresses or IPv4 CIDR blocks. Forwarded headers are ignored when unset. |
